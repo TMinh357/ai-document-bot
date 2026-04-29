@@ -61,7 +61,7 @@ export default async function DashboardPage() {
         <section className="hero-panel rounded-[2rem] p-8 md:p-10">
           <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr] lg:items-end">
             <div>
-              <p className="eyebrow">Daily Snapshot</p>
+              <p className="eyebrow">Review Workspace</p>
               <h2 className="mt-4 max-w-2xl text-4xl font-semibold tracking-tight text-gray-900">
                 Keep submissions, reviews, and decisions moving without losing
                 context.

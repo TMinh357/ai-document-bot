@@ -31,7 +31,7 @@ export default function HomePage() {
             <div className="grid gap-4">
               <div className="metric-card rounded-[1.75rem] p-6">
                 <p className="eyebrow">System highlights</p>
-                <ul className="mt-4 space-y-3 text-sm leading-6 text-gray-700">
+                <ul className="mt-4 space-y-3 text-base leading-7 text-gray-700">
                   <li>Secure PDF upload with Supabase Storage.</li>
                   <li>Role-based review workflow for employees and reviewers.</li>
                   <li>Approval history and audit logs for document tracking.</li>
