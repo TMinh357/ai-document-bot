@@ -35,24 +35,22 @@ export default async function ReviewsPage() {
     .order("created_at", { ascending: false });
 
   return (
-    <main className="min-h-screen bg-gray-100 p-8 text-gray-900">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-6 flex items-center justify-between">
+    <main className="page-shell text-gray-900">
+      <div className="page-container">
+        <div className="topbar mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">
+            <p className="eyebrow">Reviewer Queue</p>
+            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-gray-900">
               Review Queue
             </h1>
 
-            <p className="text-gray-600">
+            <p className="muted-copy mt-2">
               Documents assigned to you for review.
             </p>
           </div>
 
-          <div className="flex gap-3">
-            <Link
-              href="/dashboard"
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-900 hover:bg-gray-50"
-            >
+          <div className="topbar-nav">
+            <Link href="/dashboard" className="button-secondary">
               Dashboard
             </Link>
 
@@ -60,12 +58,14 @@ export default async function ReviewsPage() {
           </div>
         </div>
 
-        <div className="rounded-2xl bg-white shadow">
-          <div className="border-b border-gray-200 p-4">
-            <h2 className="font-semibold text-gray-900">Pending Reviews</h2>
+        <div className="section-card overflow-hidden rounded-[2rem]">
+          <div className="border-b border-gray-200/70 px-6 py-5">
+            <h2 className="text-lg font-semibold text-gray-900">
+              Pending Reviews
+            </h2>
           </div>
 
-          <div className="divide-y divide-gray-200">
+          <div className="data-list">
             {approvals && approvals.length > 0 ? (
               approvals.map((approval) => {
                 const document = Array.isArray(approval.document)
@@ -79,18 +79,18 @@ export default async function ReviewsPage() {
                 return (
                   <div
                     key={approval.id}
-                    className="flex items-center justify-between gap-4 p-4"
+                    className="flex flex-col gap-5 px-6 py-5 md:flex-row md:items-center md:justify-between"
                   >
                     <div>
-                      <h3 className="font-semibold text-gray-900">
+                      <h3 className="text-lg font-semibold text-gray-900">
                         {document.title}
                       </h3>
 
-                      <p className="text-sm text-gray-600">
+                      <p className="muted-copy mt-2 text-sm leading-6">
                         {document.description || "No description provided"}
                       </p>
 
-                      <p className="mt-1 text-xs text-gray-500">
+                      <p className="mt-2 text-xs uppercase tracking-[0.14em] text-gray-500">
                         Assigned at:{" "}
                         {new Date(approval.created_at).toLocaleString()}
                       </p>
@@ -98,7 +98,7 @@ export default async function ReviewsPage() {
 
                     <Link
                       href={`/documents/${document.id}`}
-                      className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                      className="button-primary text-sm"
                     >
                       Review
                     </Link>
@@ -106,7 +106,7 @@ export default async function ReviewsPage() {
                 );
               })
             ) : (
-              <div className="p-8 text-center text-gray-600">
+              <div className="px-6 py-10 text-center text-gray-600">
                 No pending reviews assigned to you.
               </div>
             )}

@@ -119,213 +119,204 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     document.status === "pending" && currentApproval?.status === "pending";
 
   return (
-    <main className="min-h-screen bg-gray-100 p-8 text-gray-900">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-6 flex items-center justify-between">
-          <Link href="/documents" className="text-sm text-blue-600 hover:underline">
-            ← Back to Documents
+    <main className="page-shell text-gray-900">
+      <div className="page-container max-w-6xl">
+        <div className="topbar mb-6">
+          <Link
+            href="/documents"
+            className="text-sm font-medium text-teal-700 hover:text-teal-800"
+          >
+            Back to Documents
           </Link>
 
-          <Link
-            href="/dashboard"
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-900 hover:bg-gray-50"
-          >
+          <Link href="/dashboard" className="button-secondary">
             Dashboard
           </Link>
         </div>
 
-        <div className="rounded-2xl bg-white p-8 shadow">
-          <div className="mb-6 flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
+        <section className="hero-panel rounded-[2rem] p-8 md:p-10">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="eyebrow">Document Detail</p>
+              <h1 className="mt-4 text-4xl font-semibold tracking-tight text-gray-900 md:text-5xl">
                 {document.title}
               </h1>
 
-              <p className="mt-2 text-gray-600">
+              <p className="muted-copy mt-4 text-lg leading-8">
                 {document.description || "No description provided"}
               </p>
             </div>
 
-            <span className="rounded-full bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800">
-              {document.status}
-            </span>
+            <span className="status-pill self-start">{document.status}</span>
           </div>
 
-          <div className="mb-8 grid gap-4 md:grid-cols-3">
-            <div className="rounded-xl border border-gray-300 p-4">
-              <p className="text-sm text-gray-600">Created At</p>
-              <p className="font-medium text-gray-900">
+          <div className="mt-8 grid gap-4 md:grid-cols-3">
+            <div className="metric-card rounded-[1.5rem] p-5">
+              <p className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
+                Created At
+              </p>
+              <p className="mt-3 font-medium text-gray-900">
                 {new Date(document.created_at).toLocaleString()}
               </p>
             </div>
 
-            <div className="rounded-xl border border-gray-300 p-4">
-              <p className="text-sm text-gray-600">Last Updated</p>
-              <p className="font-medium text-gray-900">
+            <div className="metric-card rounded-[1.5rem] p-5">
+              <p className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
+                Last Updated
+              </p>
+              <p className="mt-3 font-medium text-gray-900">
                 {new Date(document.updated_at).toLocaleString()}
               </p>
             </div>
 
-            <div className="rounded-xl border border-gray-300 p-4">
-              <p className="text-sm text-gray-600">Document ID</p>
-              <p className="break-all font-mono text-sm text-gray-900">
+            <div className="metric-card rounded-[1.5rem] p-5">
+              <p className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
+                Document ID
+              </p>
+              <p className="mt-3 break-all font-mono text-sm text-gray-900">
                 {document.id}
               </p>
             </div>
           </div>
+        </section>
 
-          <div className="mb-8">
-            <h2 className="mb-3 text-xl font-semibold text-gray-900">
-              Uploaded Files
-            </h2>
+        <section className="section-card mt-6 rounded-[2rem] p-6 md:p-8">
+          <h2 className="text-2xl font-semibold text-gray-900">Uploaded Files</h2>
 
-            <div className="divide-y divide-gray-200 rounded-xl border border-gray-300">
-              {versionsWithUrls.length > 0 ? (
-                versionsWithUrls.map((version) => (
-                  <div
-                    key={version.id}
-                    className="flex items-center justify-between gap-4 p-4"
-                  >
+          <div className="data-list mt-5 overflow-hidden rounded-[1.5rem] border border-gray-200/70">
+            {versionsWithUrls.length > 0 ? (
+              versionsWithUrls.map((version) => (
+                <div
+                  key={version.id}
+                  className="flex flex-col gap-5 px-5 py-5 md:flex-row md:items-center md:justify-between"
+                >
+                  <div>
+                    <p className="text-lg font-semibold text-gray-900">
+                      Version {version.version_no}
+                    </p>
+
+                    <p className="muted-copy mt-2 text-sm">
+                      Uploaded at: {new Date(version.created_at).toLocaleString()}
+                    </p>
+
+                    <p className="mt-2 break-all font-mono text-xs text-gray-500">
+                      {version.file_path}
+                    </p>
+                  </div>
+
+                  {version.signedUrl ? (
+                    <a
+                      href={version.signedUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="button-primary text-sm"
+                    >
+                      View PDF
+                    </a>
+                  ) : (
+                    <span className="text-sm text-gray-500">No file available</span>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="px-5 py-6 text-gray-600">
+                No uploaded files available.
+              </div>
+            )}
+          </div>
+        </section>
+
+        {isOwner && (
+          <SubmitForReviewForm
+            documentId={document.id}
+            currentStatus={document.status}
+            reviewers={reviewers || []}
+          />
+        )}
+
+        {canReview && currentApproval && (
+          <ReviewActions documentId={document.id} approvalId={currentApproval.id} />
+        )}
+
+        <section className="section-card mt-6 rounded-[2rem] p-6 md:p-8">
+          <h2 className="text-2xl font-semibold text-gray-900">
+            Approval History
+          </h2>
+
+          <p className="muted-copy mt-2 text-sm">
+            Review requests and decisions related to this document.
+          </p>
+
+          <div className="data-list mt-5 overflow-hidden rounded-[1.5rem] border border-gray-200/70">
+            {approvals && approvals.length > 0 ? (
+              approvals.map((approval) => (
+                <div key={approval.id} className="px-5 py-5">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div>
-                      <p className="font-medium text-gray-900">
-                        Version {version.version_no}
+                      <p className="text-lg font-semibold text-gray-900">
+                        Reviewer:{" "}
+                        {reviewerNameMap.get(approval.reviewer_id) ||
+                          approval.reviewer_id}
                       </p>
 
-                      <p className="text-xs text-gray-600">
-                        Uploaded at:{" "}
-                        {new Date(version.created_at).toLocaleString()}
+                      <p className="muted-copy mt-2 text-sm">
+                        Requested at: {new Date(approval.created_at).toLocaleString()}
                       </p>
 
-                      <p className="mt-1 break-all text-xs text-gray-500">
-                        {version.file_path}
-                      </p>
-                    </div>
-
-                    {version.signedUrl ? (
-                      <a
-                        href={version.signedUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
-                      >
-                        View PDF
-                      </a>
-                    ) : (
-                      <span className="text-sm text-gray-500">
-                        No file available
-                      </span>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <div className="p-4 text-gray-600">
-                  No uploaded files available.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {isOwner && (
-            <SubmitForReviewForm
-              documentId={document.id}
-              currentStatus={document.status}
-              reviewers={reviewers || []}
-            />
-          )}
-
-          {canReview && currentApproval && (
-            <ReviewActions
-              documentId={document.id}
-              approvalId={currentApproval.id}
-            />
-          )}
-
-          <div className="mt-8 rounded-xl border border-gray-300 p-5">
-            <h2 className="text-xl font-semibold text-gray-900">
-              Approval History
-            </h2>
-
-            <p className="mt-1 text-sm text-gray-600">
-              Review requests and decisions related to this document.
-            </p>
-
-            <div className="mt-4 divide-y divide-gray-200 rounded-xl border border-gray-200">
-              {approvals && approvals.length > 0 ? (
-                approvals.map((approval) => (
-                  <div key={approval.id} className="p-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="font-medium text-gray-900">
-                          Reviewer:{" "}
-                          {reviewerNameMap.get(approval.reviewer_id) ||
-                            approval.reviewer_id}
+                      {approval.reviewed_at && (
+                        <p className="muted-copy mt-1 text-sm">
+                          Reviewed at:{" "}
+                          {new Date(approval.reviewed_at).toLocaleString()}
                         </p>
-
-                        <p className="text-sm text-gray-600">
-                          Requested at:{" "}
-                          {new Date(approval.created_at).toLocaleString()}
-                        </p>
-
-                        {approval.reviewed_at && (
-                          <p className="text-sm text-gray-600">
-                            Reviewed at:{" "}
-                            {new Date(approval.reviewed_at).toLocaleString()}
-                          </p>
-                        )}
-                      </div>
-
-                      <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-800">
-                        {approval.status}
-                      </span>
+                      )}
                     </div>
 
-                    {approval.comment && (
-                      <p className="mt-3 rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
-                        {approval.comment}
-                      </p>
-                    )}
+                    <span className="status-pill self-start">{approval.status}</span>
                   </div>
-                ))
-              ) : (
-                <div className="p-4 text-gray-600">
-                  No approval history available.
+
+                  {approval.comment && (
+                    <p className="mt-4 rounded-[1.25rem] bg-white/70 p-4 text-sm leading-6 text-gray-700">
+                      {approval.comment}
+                    </p>
+                  )}
                 </div>
-              )}
-            </div>
+              ))
+            ) : (
+              <div className="px-5 py-6 text-gray-600">
+                No approval history available.
+              </div>
+            )}
           </div>
+        </section>
 
-          <div className="mt-8 rounded-xl border border-gray-300 p-5">
-            <h2 className="text-xl font-semibold text-gray-900">
-              Activity Log
-            </h2>
+        <section className="section-card mt-6 rounded-[2rem] p-6 md:p-8">
+          <h2 className="text-2xl font-semibold text-gray-900">Activity Log</h2>
 
-            <p className="mt-1 text-sm text-gray-600">
-              System actions recorded for this document.
-            </p>
+          <p className="muted-copy mt-2 text-sm">
+            System actions recorded for this document.
+          </p>
 
-            <div className="mt-4 divide-y divide-gray-200 rounded-xl border border-gray-200">
-              {auditLogs && auditLogs.length > 0 ? (
-                auditLogs.map((log) => (
-                  <div key={log.id} className="p-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <p className="font-medium text-gray-900">
-                        {log.action}
-                      </p>
+          <div className="data-list mt-5 overflow-hidden rounded-[1.5rem] border border-gray-200/70">
+            {auditLogs && auditLogs.length > 0 ? (
+              auditLogs.map((log) => (
+                <div
+                  key={log.id}
+                  className="flex flex-col gap-2 px-5 py-5 md:flex-row md:items-center md:justify-between"
+                >
+                  <p className="font-semibold text-gray-900">{log.action}</p>
 
-                      <p className="text-sm text-gray-600">
-                        {new Date(log.created_at).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="p-4 text-gray-600">
-                  No activity logs available.
+                  <p className="muted-copy text-sm">
+                    {new Date(log.created_at).toLocaleString()}
+                  </p>
                 </div>
-              )}
-            </div>
+              ))
+            ) : (
+              <div className="px-5 py-6 text-gray-600">
+                No activity logs available.
+              </div>
+            )}
           </div>
-        </div>
+        </section>
       </div>
     </main>
   );

@@ -20,21 +20,21 @@ export default async function DocumentsPage() {
     .order("created_at", { ascending: false });
 
   return (
-    <main className="min-h-screen bg-gray-100 p-8">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-6 flex items-center justify-between">
+    <main className="page-shell">
+      <div className="page-container">
+        <div className="topbar mb-8">
           <div>
-            <h1 className="text-3xl font-bold">Documents</h1>
-            <p className="text-gray-500">
+            <p className="eyebrow">Document Center</p>
+            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-gray-900">
+              Documents
+            </h1>
+            <p className="muted-copy mt-2">
               Manage submitted documents and review their approval status.
             </p>
           </div>
 
-          <div className="flex gap-3">
-            <Link
-              href="/dashboard"
-              className="rounded-lg border bg-white px-4 py-2"
-            >
+          <div className="topbar-nav">
+            <Link href="/dashboard" className="button-secondary">
               Dashboard
             </Link>
 
@@ -42,46 +42,47 @@ export default async function DocumentsPage() {
           </div>
         </div>
 
-        <div className="mb-6">
-          <Link
-            href="/documents/new"
-            className="rounded-lg bg-black px-5 py-2 text-white"
-          >
+        <div className="mb-6 flex justify-end">
+          <Link href="/documents/new" className="button-primary">
             Create New Document
           </Link>
         </div>
 
-        <div className="rounded-2xl bg-white shadow">
-          <div className="border-b p-4">
-            <h2 className="font-semibold">Document List</h2>
+        <div className="section-card overflow-hidden rounded-[2rem]">
+          <div className="border-b border-gray-200/70 px-6 py-5">
+            <h2 className="text-lg font-semibold text-gray-900">
+              Document List
+            </h2>
           </div>
 
-          <div className="divide-y">
+          <div className="data-list">
             {documents && documents.length > 0 ? (
               documents.map((document) => (
                 <div
                   key={document.id}
-                  className="flex items-center justify-between gap-4 p-4"
+                  className="flex flex-col gap-5 px-6 py-5 md:flex-row md:items-center md:justify-between"
                 >
                   <div>
-                    <h3 className="font-semibold">{document.title}</h3>
-                    <p className="text-sm text-gray-500">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {document.title}
+                    </h3>
+                    <p className="muted-copy mt-2 text-sm leading-6">
                       {document.description || "No description provided"}
                     </p>
-                    <p className="mt-1 text-xs text-gray-400">
+                    <p className="mt-2 text-xs uppercase tracking-[0.14em] text-gray-500">
                       Created at:{" "}
                       {new Date(document.created_at).toLocaleString()}
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-medium">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="status-pill">
                       {document.status}
                     </span>
 
                     <Link
                       href={`/documents/${document.id}`}
-                      className="rounded-lg border px-4 py-2 text-sm"
+                      className="button-secondary text-sm"
                     >
                       View Details
                     </Link>
@@ -89,7 +90,7 @@ export default async function DocumentsPage() {
                 </div>
               ))
             ) : (
-              <div className="p-8 text-center text-gray-500">
+              <div className="px-6 py-10 text-center text-gray-600">
                 No documents have been created yet.
               </div>
             )}

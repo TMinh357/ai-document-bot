@@ -31,29 +31,26 @@ export default async function DashboardPage() {
     .eq("status", "pending");
 
   return (
-    <main className="min-h-screen bg-gray-100 p-8 text-gray-900">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-6 flex items-center justify-between">
+    <main className="page-shell text-gray-900">
+      <div className="page-container">
+        <div className="topbar mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+            <p className="eyebrow">Workspace Overview</p>
+            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-gray-900">
+              Dashboard
+            </h1>
 
-            <p className="text-gray-600">
+            <p className="muted-copy mt-2">
               Welcome, {profile?.full_name || user.email}
             </p>
           </div>
 
-          <div className="flex gap-3">
-            <Link
-              href="/documents"
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-900 hover:bg-gray-50"
-            >
+          <div className="topbar-nav">
+            <Link href="/documents" className="button-secondary">
               Documents
             </Link>
 
-            <Link
-              href="/reviews"
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-900 hover:bg-gray-50"
-            >
+            <Link href="/reviews" className="button-secondary">
               Reviews
             </Link>
 
@@ -61,72 +58,109 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl bg-white p-6 shadow">
-            <h2 className="font-semibold text-gray-900">Documents</h2>
+        <section className="hero-panel rounded-[2rem] p-8 md:p-10">
+          <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr] lg:items-end">
+            <div>
+              <p className="eyebrow">Daily Snapshot</p>
+              <h2 className="mt-4 max-w-2xl text-4xl font-semibold tracking-tight text-gray-900">
+                Keep submissions, reviews, and decisions moving without losing
+                context.
+              </h2>
 
-            <p className="mt-2 text-3xl font-bold text-gray-900">
+              <p className="muted-copy mt-5 max-w-2xl text-lg leading-8">
+                Your review pipeline is organized into clear action areas so
+                pending work stands out immediately.
+              </p>
+            </div>
+
+            <div className="rounded-[1.75rem] border border-white/50 bg-white/60 p-6">
+              <p className="text-sm font-medium uppercase tracking-[0.18em] text-teal-800">
+                Signed in as
+              </p>
+              <p className="mt-3 text-2xl font-semibold text-gray-900">
+                {profile?.full_name || user.email}
+              </p>
+              <p className="muted-copy mt-2 text-sm">
+                Role: {profile?.role || "employee"}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="metric-card rounded-[1.75rem] p-6">
+            <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
+              Documents
+            </h2>
+
+            <p className="mt-3 text-4xl font-semibold text-gray-900">
               {documentCount ?? 0}
             </p>
 
-            <p className="text-sm text-gray-600">
+            <p className="muted-copy mt-2 text-sm">
               Total documents in the system
             </p>
           </div>
 
-          <div className="rounded-2xl bg-white p-6 shadow">
-            <h2 className="font-semibold text-gray-900">Pending Reviews</h2>
+          <div className="metric-card rounded-[1.75rem] p-6">
+            <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
+              Pending Reviews
+            </h2>
 
-            <p className="mt-2 text-3xl font-bold text-gray-900">
+            <p className="mt-3 text-4xl font-semibold text-gray-900">
               {pendingReviewCount ?? 0}
             </p>
 
-            <p className="text-sm text-gray-600">
+            <p className="muted-copy mt-2 text-sm">
               Documents assigned to you for review
             </p>
           </div>
 
-          <div className="rounded-2xl bg-white p-6 shadow">
-            <h2 className="font-semibold text-gray-900">User Role</h2>
+          <div className="metric-card rounded-[1.75rem] p-6">
+            <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
+              User Role
+            </h2>
 
-            <p className="mt-2 text-3xl font-bold text-gray-900">
+            <p className="mt-3 text-4xl font-semibold capitalize text-gray-900">
               {profile?.role || "employee"}
             </p>
 
-            <p className="text-sm text-gray-600">
+            <p className="muted-copy mt-2 text-sm">
               Current permission level
             </p>
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl bg-white p-6 shadow">
-          <h2 className="text-xl font-semibold text-gray-900">Quick Actions</h2>
+        <div className="mt-6 section-card rounded-[2rem] p-6 md:p-8">
+          <h2 className="text-2xl font-semibold text-gray-900">Quick Actions</h2>
 
-          <p className="mt-1 text-sm text-gray-600">
+          <p className="muted-copy mt-2 text-sm">
             Access the main features of the document review system.
           </p>
 
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <Link
               href="/documents"
-              className="rounded-xl border border-gray-300 p-5 transition hover:bg-gray-50"
+              className="metric-card rounded-[1.5rem] p-5 hover:-translate-y-0.5"
             >
-              <h3 className="font-semibold text-gray-900">
+              <h3 className="text-lg font-semibold text-gray-900">
                 Manage Documents
               </h3>
 
-              <p className="mt-1 text-sm text-gray-600">
+              <p className="muted-copy mt-2 text-sm leading-6">
                 Create, view, upload, and manage document records.
               </p>
             </Link>
 
             <Link
               href="/reviews"
-              className="rounded-xl border border-gray-300 p-5 transition hover:bg-gray-50"
+              className="metric-card rounded-[1.5rem] p-5 hover:-translate-y-0.5"
             >
-              <h3 className="font-semibold text-gray-900">Review Queue</h3>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Review Queue
+              </h3>
 
-              <p className="mt-1 text-sm text-gray-600">
+              <p className="muted-copy mt-2 text-sm leading-6">
                 View documents assigned to you and make review decisions.
               </p>
             </Link>

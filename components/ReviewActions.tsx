@@ -80,10 +80,10 @@ export default function ReviewActions({
   }
 
   return (
-    <div className="mt-8 rounded-xl border border-gray-300 p-5">
-      <h2 className="text-xl font-semibold text-gray-900">Review Decision</h2>
+    <div className="section-card mt-6 rounded-[2rem] p-6 md:p-8">
+      <h2 className="text-2xl font-semibold text-gray-900">Review Decision</h2>
 
-      <p className="mt-1 text-sm text-gray-600">
+      <p className="muted-copy mt-2 text-sm">
         Approve or reject this document based on its content and requirements.
       </p>
 
@@ -93,7 +93,7 @@ export default function ReviewActions({
         </label>
 
         <textarea
-          className="min-h-28 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 placeholder:text-gray-400"
+          className="textarea-field min-h-28"
           value={comment}
           onChange={(e) => setComment(e.target.value)}
           placeholder="Enter your review comment"
@@ -107,7 +107,7 @@ export default function ReviewActions({
           type="button"
           disabled={isLoading}
           onClick={() => handleReview("approved")}
-          className="rounded-lg bg-green-600 px-5 py-2 font-medium text-white hover:bg-green-700 disabled:opacity-60"
+          className="button-success disabled:opacity-60"
         >
           Approve
         </button>
@@ -116,7 +116,7 @@ export default function ReviewActions({
           type="button"
           disabled={isLoading}
           onClick={() => handleReview("rejected")}
-          className="rounded-lg bg-red-600 px-5 py-2 font-medium text-white hover:bg-red-700 disabled:opacity-60"
+          className="button-danger disabled:opacity-60"
         >
           Reject
         </button>

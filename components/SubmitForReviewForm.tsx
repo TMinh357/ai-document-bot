@@ -95,12 +95,12 @@ export default function SubmitForReviewForm({
   }
 
   return (
-    <div className="mt-8 rounded-xl border border-gray-300 p-5">
-      <h2 className="text-xl font-semibold text-gray-900">
+    <div className="section-card mt-6 rounded-[2rem] p-6 md:p-8">
+      <h2 className="text-2xl font-semibold text-gray-900">
         Submit for Review
       </h2>
 
-      <p className="mt-1 text-sm text-gray-600">
+      <p className="muted-copy mt-2 text-sm">
         Select a reviewer and move this document to the pending review stage.
       </p>
 
@@ -117,7 +117,7 @@ export default function SubmitForReviewForm({
             </label>
 
             <select
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900"
+              className="select-field"
               value={reviewerId}
               onChange={(e) => setReviewerId(e.target.value)}
               required
@@ -137,7 +137,7 @@ export default function SubmitForReviewForm({
           <button
             type="submit"
             disabled={isLoading}
-            className="rounded-lg bg-black px-5 py-2 font-medium text-white hover:bg-gray-800 disabled:opacity-60"
+            className="button-primary disabled:opacity-60"
           >
             {isLoading ? "Submitting..." : "Submit for Review"}
           </button>

@@ -92,27 +92,32 @@ export default function NewDocumentPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 p-8 text-gray-900">
-      <div className="mx-auto max-w-2xl">
+    <main className="page-shell text-gray-900">
+      <div className="page-container max-w-3xl">
         <div className="mb-6">
-          <Link href="/documents" className="text-sm text-blue-600">
-            ← Back to Documents
+          <Link
+            href="/documents"
+            className="text-sm font-medium text-teal-700 hover:text-teal-800"
+          >
+            Back to Documents
           </Link>
 
-          <h1 className="mt-4 text-3xl font-bold">Create New Document</h1>
-          <p className="text-gray-500">
+          <h1 className="mt-4 text-4xl font-semibold tracking-tight">
+            Create New Document
+          </h1>
+          <p className="muted-copy mt-2">
             Upload a PDF file and submit basic document information.
           </p>
         </div>
 
-        <div className="rounded-2xl bg-white p-8 shadow">
+        <div className="section-card rounded-[2rem] p-8">
           <form onSubmit={handleCreateDocument} className="space-y-5">
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
                 Document Title
               </label>
               <input
-                className="w-full rounded-lg border px-3 py-2"
+                className="input-field"
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -122,11 +127,11 @@ export default function NewDocumentPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
                 Description
               </label>
               <textarea
-                className="min-h-32 w-full rounded-lg border px-3 py-2"
+                className="textarea-field"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Enter a short description"
@@ -134,11 +139,11 @@ export default function NewDocumentPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
                 PDF File
               </label>
               <input
-                className="w-full rounded-lg border px-3 py-2"
+                className="file-field"
                 type="file"
                 accept=".pdf"
                 onChange={(e) => setFile(e.target.files?.[0] || null)}
@@ -146,7 +151,7 @@ export default function NewDocumentPage() {
               />
 
               {file && (
-                <p className="mt-2 text-sm text-gray-500">
+                <p className="muted-copy mt-2 text-sm">
                   Selected file: {file.name}
                 </p>
               )}
@@ -157,7 +162,7 @@ export default function NewDocumentPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full rounded-lg bg-black py-2 font-medium text-white disabled:opacity-60"
+              className="button-primary w-full disabled:opacity-60"
             >
               {isLoading ? "Uploading..." : "Create Document"}
             </button>
