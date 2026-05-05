@@ -1,35 +1,29 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationPanel from "@/components/NotificationPanel";
+import { requireUser } from "@/lib/supabase/auth";
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
+  const { supabase, user, profile, role } = await requireUser();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const isAdmin = role === "admin";
+  const canReview = role === "reviewer" || role === "admin";
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, role")
-    .eq("id", user.id)
-    .single();
-
-  const { count: documentCount } = await supabase
+  const documentCountQuery = supabase
     .from("documents")
     .select("*", { count: "exact", head: true });
 
-  const { count: pendingReviewCount } = await supabase
-    .from("approvals")
-    .select("*", { count: "exact", head: true })
-    .eq("reviewer_id", user.id)
-    .eq("status", "pending");
+  const { count: documentCount } = isAdmin
+    ? await documentCountQuery
+    : await documentCountQuery.eq("owner_id", user.id);
+
+  const { count: pendingReviewCount } = canReview
+    ? await supabase
+        .from("approvals")
+        .select("*", { count: "exact", head: true })
+        .eq("reviewer_id", user.id)
+        .eq("status", "pending")
+    : { count: 0 };
 
   const { data: notifications } = await supabase
     .from("notifications")
@@ -39,6 +33,10 @@ export default async function DashboardPage() {
     .limit(20);
 
   const unreadCount = (notifications ?? []).filter((n) => !n.is_read).length;
+
+  const documentsCaption = isAdmin
+    ? "Total documents in the system"
+    : "Documents you own";
 
   return (
     <main className="page-shell text-gray-900">
@@ -60,11 +58,13 @@ export default async function DashboardPage() {
               Documents
             </Link>
 
-            <Link href="/reviews" className="button-secondary">
-              Reviews
-            </Link>
+            {canReview && (
+              <Link href="/reviews" className="button-secondary">
+                Reviews
+              </Link>
+            )}
 
-            {profile?.role === "admin" && (
+            {isAdmin && (
               <Link href="/admin" className="button-primary">
                 Admin Panel
               </Link>
@@ -97,13 +97,15 @@ export default async function DashboardPage() {
                 {profile?.full_name || user.email}
               </p>
               <p className="muted-copy mt-2 text-sm">
-                Role: {profile?.role || "employee"}
+                Role: {role}
               </p>
             </div>
           </div>
         </section>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-3">
+        <div
+          className={`mt-6 grid gap-4 ${canReview ? "md:grid-cols-3" : "md:grid-cols-2"}`}
+        >
           <div className="metric-card rounded-[1.75rem] p-6">
             <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
               Documents
@@ -113,24 +115,24 @@ export default async function DashboardPage() {
               {documentCount ?? 0}
             </p>
 
-            <p className="muted-copy mt-2 text-sm">
-              Total documents in the system
-            </p>
+            <p className="muted-copy mt-2 text-sm">{documentsCaption}</p>
           </div>
 
-          <div className="metric-card rounded-[1.75rem] p-6">
-            <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
-              Pending Reviews
-            </h2>
+          {canReview && (
+            <div className="metric-card rounded-[1.75rem] p-6">
+              <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
+                Pending Reviews
+              </h2>
 
-            <p className="mt-3 text-4xl font-semibold text-gray-900">
-              {pendingReviewCount ?? 0}
-            </p>
+              <p className="mt-3 text-4xl font-semibold text-gray-900">
+                {pendingReviewCount ?? 0}
+              </p>
 
-            <p className="muted-copy mt-2 text-sm">
-              Documents assigned to you for review
-            </p>
-          </div>
+              <p className="muted-copy mt-2 text-sm">
+                Documents assigned to you for review
+              </p>
+            </div>
+          )}
 
           <div className="metric-card rounded-[1.75rem] p-6">
             <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
@@ -141,9 +143,7 @@ export default async function DashboardPage() {
               {unreadCount}
             </p>
 
-            <p className="muted-copy mt-2 text-sm">
-              Unread notifications
-            </p>
+            <p className="muted-copy mt-2 text-sm">Unread notifications</p>
           </div>
         </div>
 
@@ -168,20 +168,22 @@ export default async function DashboardPage() {
               </p>
             </Link>
 
-            <Link
-              href="/reviews"
-              className="metric-card rounded-[1.5rem] p-5 hover:-translate-y-0.5"
-            >
-              <h3 className="text-lg font-semibold text-gray-900">
-                Review Queue
-              </h3>
+            {canReview && (
+              <Link
+                href="/reviews"
+                className="metric-card rounded-[1.5rem] p-5 hover:-translate-y-0.5"
+              >
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Review Queue
+                </h3>
 
-              <p className="muted-copy mt-2 text-sm leading-6">
-                View documents assigned to you and make review decisions.
-              </p>
-            </Link>
+                <p className="muted-copy mt-2 text-sm leading-6">
+                  View documents assigned to you and make review decisions.
+                </p>
+              </Link>
+            )}
 
-            {profile?.role === "admin" && (
+            {isAdmin && (
               <Link
                 href="/admin"
                 className="metric-card rounded-[1.5rem] p-5 hover:-translate-y-0.5 md:col-span-2"

@@ -1,18 +1,9 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/LogoutButton";
+import { requireRole } from "@/lib/supabase/auth";
 
 export default async function ReviewsPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
+  const { supabase, user } = await requireRole(["reviewer", "admin"]);
 
   const { data: approvals } = await supabase
     .from("approvals")

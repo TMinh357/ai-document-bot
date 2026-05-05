@@ -1,0 +1,36 @@
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+
+export type AppRole = "employee" | "reviewer" | "admin";
+
+export async function requireUser() {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, full_name, role")
+    .eq("id", user.id)
+    .single();
+
+  const role = (profile?.role ?? "employee") as AppRole;
+
+  return { supabase, user, profile, role };
+}
+
+export async function requireRole(allowed: AppRole[]) {
+  const ctx = await requireUser();
+
+  if (!allowed.includes(ctx.role)) {
+    redirect("/dashboard");
+  }
+
+  return ctx;
+}

@@ -32,7 +32,7 @@ export default function SubmitForReviewForm({
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  if (currentStatus !== "draft" && currentStatus !== "rejected") {
+  if (currentStatus !== "draft") {
     return null;
   }
 

@@ -1,22 +1,14 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/LogoutButton";
+import { requireUser } from "@/lib/supabase/auth";
 
 export default async function DocumentsPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
+  const { supabase, user } = await requireUser();
 
   const { data: documents } = await supabase
     .from("documents")
     .select("id, title, description, status, created_at")
+    .eq("owner_id", user.id)
     .order("created_at", { ascending: false });
 
   return (
@@ -26,10 +18,10 @@ export default async function DocumentsPage() {
           <div>
             <p className="eyebrow">Document Center</p>
             <h1 className="mt-3 text-4xl font-semibold tracking-tight text-gray-900">
-              Documents
+              My Documents
             </h1>
             <p className="muted-copy mt-2">
-              Manage submitted documents and review their approval status.
+              Documents you own. Submit them for review and track their status.
             </p>
           </div>
 

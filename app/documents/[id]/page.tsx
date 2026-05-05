@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import SubmitForReviewForm from "@/components/SubmitForReviewForm";
 import ReviewActions from "@/components/ReviewActions";
 import StatusBadge from "@/components/StatusBadge";
 import AIWorkspace from "@/components/AIWorkspace";
 import SignDocumentPanel from "@/components/SignDocumentPanel";
 import UploadNewVersionForm from "@/components/UploadNewVersionForm";
+import DocumentTimeline, {
+  type TimelineEvent,
+} from "@/components/DocumentTimeline";
+import { requireUser } from "@/lib/supabase/auth";
 
 type PageProps = {
   params: Promise<{
@@ -23,15 +26,7 @@ type ReviewerProfile = {
 export default async function DocumentDetailPage({ params }: PageProps) {
   const { id } = await params;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
+  const { supabase, user, role } = await requireUser();
 
   const { data: document } = await supabase
     .from("documents")
@@ -43,9 +38,25 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     redirect("/documents");
   }
 
+  const isOwner = document.owner_id === user.id;
+  const isAdmin = role === "admin";
+
+  const { data: assignedApprovals } = await supabase
+    .from("approvals")
+    .select("id")
+    .eq("document_id", id)
+    .eq("reviewer_id", user.id)
+    .limit(1);
+
+  const isAssignedReviewer = !!(assignedApprovals && assignedApprovals.length > 0);
+
+  if (!isOwner && !isAdmin && !isAssignedReviewer) {
+    redirect("/documents");
+  }
+
   const { data: versions } = await supabase
     .from("document_versions")
-    .select("id, version_no, file_path, content_text, created_at")
+    .select("id, version_no, file_path, content_text, created_at, created_by")
     .eq("document_id", id)
     .order("version_no", { ascending: false });
 
@@ -83,28 +94,6 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     .eq("document_id", id)
     .order("created_at", { ascending: false });
 
-  const reviewerIds = Array.from(
-    new Set((approvals || []).map((approval) => approval.reviewer_id))
-  );
-
-  let reviewerProfiles: ReviewerProfile[] = [];
-
-  if (reviewerIds.length > 0) {
-    const { data } = await supabase
-      .from("profiles")
-      .select("id, full_name, role")
-      .in("id", reviewerIds);
-
-    reviewerProfiles = data || [];
-  }
-
-  const reviewerNameMap = new Map(
-    reviewerProfiles.map((profile) => [
-      profile.id,
-      profile.full_name || profile.id,
-    ])
-  );
-
   const { data: currentApproval } = await supabase
     .from("approvals")
     .select("id, status, reviewer_id, comment")
@@ -134,16 +123,102 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     .eq("document_id", id)
     .order("signed_at", { ascending: false });
 
-  const { data: auditLogs } = await supabase
-    .from("audit_logs")
-    .select("id, action, created_at, metadata")
-    .eq("target_table", "documents")
-    .eq("target_id", id)
-    .order("created_at", { ascending: false });
+  const participantIds = Array.from(
+    new Set([
+      document.owner_id,
+      ...(approvals || []).map((a) => a.reviewer_id),
+      ...(signatures || []).map((s) => s.signer_id),
+      ...(versions || [])
+        .map((v) => v.created_by)
+        .filter((id): id is string => !!id),
+    ])
+  );
 
-  const isOwner = document.owner_id === user.id;
+  let participantProfiles: ReviewerProfile[] = [];
+
+  if (participantIds.length > 0) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, full_name, role")
+      .in("id", participantIds);
+
+    participantProfiles = data || [];
+  }
+
+  const reviewerNameMap = new Map(
+    participantProfiles.map((profile) => [
+      profile.id,
+      profile.full_name || profile.id,
+    ])
+  );
+
+  const ownerName = reviewerNameMap.get(document.owner_id) || "Owner";
+
+  const timelineEvents: TimelineEvent[] = [];
+
+  timelineEvents.push({
+    id: `created-${document.id}`,
+    type: "created",
+    title: "Document created",
+    by: ownerName,
+    timestamp: document.created_at,
+  });
+
+  (versions || []).forEach((v) => {
+    timelineEvents.push({
+      id: `uploaded-${v.id}`,
+      type: "uploaded",
+      title: `Version ${v.version_no} uploaded`,
+      by: v.created_by ? reviewerNameMap.get(v.created_by) : undefined,
+      timestamp: v.created_at,
+    });
+  });
+
+  (approvals || []).forEach((a) => {
+    timelineEvents.push({
+      id: `submitted-${a.id}`,
+      type: "submitted",
+      title: "Submitted for review",
+      by: `→ ${reviewerNameMap.get(a.reviewer_id) || a.reviewer_id}`,
+      timestamp: a.created_at,
+    });
+
+    if (a.reviewed_at && (a.status === "approved" || a.status === "rejected")) {
+      timelineEvents.push({
+        id: `decision-${a.id}`,
+        type: a.status as "approved" | "rejected",
+        title: a.status === "approved" ? "Approved" : "Rejected",
+        by: reviewerNameMap.get(a.reviewer_id) || a.reviewer_id,
+        comment: a.comment,
+        timestamp: a.reviewed_at,
+      });
+    }
+  });
+
+  (signatures || []).forEach((s) => {
+    if (s.signed_at) {
+      timelineEvents.push({
+        id: `signed-${s.id}`,
+        type: "signed",
+        title: "Document signed",
+        by: reviewerNameMap.get(s.signer_id) || s.signer_id,
+        timestamp: s.signed_at,
+      });
+    }
+  });
+
+  timelineEvents.sort(
+    (a, b) =>
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+
   const canReview =
     document.status === "pending" && currentApproval?.status === "pending";
+
+  const latestRejection =
+    document.status === "rejected"
+      ? (approvals || []).find((a) => a.status === "rejected")
+      : null;
 
   return (
     <main className="min-h-screen bg-slate-50 p-6 text-gray-900 lg:p-10">
@@ -203,6 +278,50 @@ export default async function DocumentDetailPage({ params }: PageProps) {
             </div>
           </div>
         </section>
+
+        {isOwner && latestRejection && (
+          <section className="mt-6 rounded-3xl border border-red-200 bg-red-50 p-6 shadow-sm">
+            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.3em] text-red-700">
+                  Revision Required
+                </p>
+                <h2 className="mt-2 text-xl font-bold text-red-900">
+                  This document was rejected
+                </h2>
+                <p className="mt-1 text-sm text-red-800">
+                  Reviewer:{" "}
+                  <span className="font-semibold">
+                    {reviewerNameMap.get(latestRejection.reviewer_id) ||
+                      latestRejection.reviewer_id}
+                  </span>
+                  {latestRejection.reviewed_at && (
+                    <>
+                      {" · "}
+                      {new Date(latestRejection.reviewed_at).toLocaleString()}
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {latestRejection.comment && (
+              <div className="mt-4 rounded-2xl border border-red-200 bg-white p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-700">
+                  Reviewer Feedback
+                </p>
+                <p className="mt-2 whitespace-pre-line text-sm leading-6 text-gray-800">
+                  {latestRejection.comment}
+                </p>
+              </div>
+            )}
+
+            <p className="mt-4 text-sm text-red-800">
+              Upload a revised PDF below — the document will reset to draft so
+              you can submit it for review again. The rejection history is kept.
+            </p>
+          </section>
+        )}
 
         <section className="mt-8 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
           <h2 className="text-2xl font-bold text-gray-900">Uploaded Files</h2>
@@ -360,27 +479,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
           </div>
         </section>
 
-        <section className="mt-8 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
-          <h2 className="text-2xl font-bold text-gray-900">Activity Log</h2>
-
-          <div className="mt-5 divide-y divide-gray-200 rounded-2xl border border-gray-200">
-            {auditLogs && auditLogs.length > 0 ? (
-              auditLogs.map((log) => (
-                <div key={log.id} className="flex items-center justify-between gap-4 p-4">
-                  <p className="font-semibold text-gray-900">{log.action}</p>
-
-                  <p className="text-sm text-gray-600">
-                    {new Date(log.created_at).toLocaleString()}
-                  </p>
-                </div>
-              ))
-            ) : (
-              <div className="p-4 text-gray-600">
-                No activity logs available.
-              </div>
-            )}
-          </div>
-        </section>
+        <DocumentTimeline events={timelineEvents} />
       </div>
     </main>
   );
