@@ -38,14 +38,29 @@ function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
   return new Promise((resolve, reject) => {
     const pdfParser = new PDFParser();
 
-    pdfParser.on("pdfParser_dataError", (errorData) => {
-      reject(
-        new Error(
-          errorData?.parserError?.toString() ||
-            "Failed to parse the PDF file."
-        )
-      );
-    });
+    pdfParser.on("pdfParser_dataError", (errorData: unknown) => {
+  let errorMessage = "Failed to parse the PDF file.";
+
+  if (errorData instanceof Error) {
+    errorMessage = errorData.message;
+  }
+
+  if (
+    typeof errorData === "object" &&
+    errorData !== null &&
+    "parserError" in errorData
+  ) {
+    const parserError = (errorData as { parserError?: unknown }).parserError;
+
+    if (parserError instanceof Error) {
+      errorMessage = parserError.message;
+    } else if (typeof parserError === "string") {
+      errorMessage = parserError;
+    }
+  }
+
+  reject(new Error(errorMessage));
+});
 
     pdfParser.on("pdfParser_dataReady", (pdfData: PdfData) => {
       const pages = pdfData.Pages || [];
