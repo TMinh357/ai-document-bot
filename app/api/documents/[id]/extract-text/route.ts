@@ -68,7 +68,7 @@ function extractFromPdfData(pdfData: PdfData): string {
 
 function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
   return new Promise((resolve, reject) => {
-    const pdfParser = new PDFParser(null, 1);
+    const pdfParser = new PDFParser(null, true);
 
     pdfParser.on("pdfParser_dataError", (errorData: unknown) => {
       let errorMessage = "Failed to parse the PDF file.";
