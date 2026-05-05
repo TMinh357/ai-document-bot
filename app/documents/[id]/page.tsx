@@ -6,6 +6,7 @@ import ReviewActions from "@/components/ReviewActions";
 import StatusBadge from "@/components/StatusBadge";
 import AIWorkspace from "@/components/AIWorkspace";
 import SignDocumentPanel from "@/components/SignDocumentPanel";
+import UploadNewVersionForm from "@/components/UploadNewVersionForm";
 
 type PageProps = {
   params: Promise<{
@@ -208,50 +209,78 @@ export default async function DocumentDetailPage({ params }: PageProps) {
 
           <div className="mt-5 divide-y divide-gray-200 rounded-2xl border border-gray-200">
             {versionsWithUrls.length > 0 ? (
-              versionsWithUrls.map((version) => (
-                <div
-                  key={version.id}
-                  className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between"
-                >
-                  <div>
-                    <p className="font-semibold text-gray-900">
-                      Version {version.version_no}
-                    </p>
+              versionsWithUrls.map((version) => {
+                const isLatest = version.id === latestVersion?.id;
 
-                    <p className="mt-1 text-xs text-gray-600">
-                      Uploaded at: {new Date(version.created_at).toLocaleString()}
-                    </p>
+                return (
+                  <div
+                    key={version.id}
+                    className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-gray-900">
+                          Version {version.version_no}
+                        </p>
 
-                    <p className="mt-1 break-all text-xs text-gray-500">
-                      {version.file_path}
-                    </p>
+                        {isLatest ? (
+                          <>
+                            <span className="inline-flex items-center rounded-full bg-teal-100 px-2.5 py-0.5 text-xs font-semibold text-teal-800">
+                              Latest
+                            </span>
+                            <StatusBadge status={document.status} />
+                          </>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-gray-200 px-2.5 py-0.5 text-xs font-semibold text-gray-700">
+                            Superseded
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="mt-1 text-xs text-gray-600">
+                        Uploaded at: {new Date(version.created_at).toLocaleString()}
+                      </p>
+
+                      <p className="mt-1 break-all text-xs text-gray-500">
+                        {version.file_path}
+                      </p>
+                    </div>
+
+                    {version.signedUrl ? (
+                      <a
+                        href={version.signedUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-xl bg-black px-4 py-2 text-center text-sm font-medium text-white hover:bg-gray-800"
+                      >
+                        View PDF
+                      </a>
+                    ) : (
+                      <span className="text-sm text-gray-500">
+                        No file available
+                      </span>
+                    )}
                   </div>
-
-                  {version.signedUrl ? (
-                    <a
-                      href={version.signedUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-xl bg-black px-4 py-2 text-center text-sm font-medium text-white hover:bg-gray-800"
-                    >
-                      View PDF
-                    </a>
-                  ) : (
-                    <span className="text-sm text-gray-500">
-                      No file available
-                    </span>
-                  )}
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="p-4 text-gray-600">
                 No uploaded files available.
               </div>
             )}
           </div>
+
+          {isOwner && latestVersion && (
+            <UploadNewVersionForm
+              documentId={document.id}
+              documentStatus={document.status}
+              latestVersionNo={latestVersion.version_no}
+            />
+          )}
         </section>
 
         <AIWorkspace
+          key={latestVersion?.id}
           documentId={document.id}
           initialExtractedText={latestVersion?.content_text || ""}
           initialSummary={latestAIResult?.summary || ""}
@@ -265,6 +294,8 @@ export default async function DocumentDetailPage({ params }: PageProps) {
             documentId={document.id}
             currentStatus={document.status}
             reviewers={reviewers || []}
+            documentTitle={document.title}
+            latestVersionNo={latestVersion?.version_no ?? null}
           />
         )}
 
@@ -272,6 +303,8 @@ export default async function DocumentDetailPage({ params }: PageProps) {
           <ReviewActions
             documentId={document.id}
             approvalId={currentApproval.id}
+            documentOwnerId={document.owner_id}
+            documentTitle={document.title}
           />
         )}
 

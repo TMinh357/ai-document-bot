@@ -10,10 +10,7 @@ type RouteContext = {
 };
 
 function cleanExtractedText(text: string) {
-  return text
-    .replace(/\s+/g, " ")
-    .replace(/([a-z])\s+([a-z])/gi, "$1$2")
-    .trim();
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function splitIntoSentences(text: string) {

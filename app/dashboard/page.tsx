@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/LogoutButton";
+import NotificationPanel from "@/components/NotificationPanel";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -30,6 +31,15 @@ export default async function DashboardPage() {
     .eq("reviewer_id", user.id)
     .eq("status", "pending");
 
+  const { data: notifications } = await supabase
+    .from("notifications")
+    .select("id, type, title, message, document_id, is_read, created_at")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  const unreadCount = (notifications ?? []).filter((n) => !n.is_read).length;
+
   return (
     <main className="page-shell text-gray-900">
       <div className="page-container">
@@ -53,6 +63,12 @@ export default async function DashboardPage() {
             <Link href="/reviews" className="button-secondary">
               Reviews
             </Link>
+
+            {profile?.role === "admin" && (
+              <Link href="/admin" className="button-primary">
+                Admin Panel
+              </Link>
+            )}
 
             <LogoutButton />
           </div>
@@ -118,15 +134,15 @@ export default async function DashboardPage() {
 
           <div className="metric-card rounded-[1.75rem] p-6">
             <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
-              User Role
+              Notifications
             </h2>
 
-            <p className="mt-3 text-4xl font-semibold capitalize text-gray-900">
-              {profile?.role || "employee"}
+            <p className="mt-3 text-4xl font-semibold text-gray-900">
+              {unreadCount}
             </p>
 
             <p className="muted-copy mt-2 text-sm">
-              Current permission level
+              Unread notifications
             </p>
           </div>
         </div>
@@ -164,7 +180,26 @@ export default async function DashboardPage() {
                 View documents assigned to you and make review decisions.
               </p>
             </Link>
+
+            {profile?.role === "admin" && (
+              <Link
+                href="/admin"
+                className="metric-card rounded-[1.5rem] p-5 hover:-translate-y-0.5 md:col-span-2"
+              >
+                <h3 className="text-lg font-semibold text-teal-700">
+                  Admin Panel
+                </h3>
+
+                <p className="muted-copy mt-2 text-sm leading-6">
+                  Manage users, roles, view all documents, approvals, and audit logs.
+                </p>
+              </Link>
+            )}
           </div>
+        </div>
+
+        <div className="mt-6">
+          <NotificationPanel initial={notifications ?? []} />
         </div>
       </div>
     </main>

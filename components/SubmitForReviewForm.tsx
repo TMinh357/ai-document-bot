@@ -14,12 +14,16 @@ type SubmitForReviewFormProps = {
   documentId: string;
   currentStatus: string;
   reviewers: Reviewer[];
+  documentTitle: string;
+  latestVersionNo: number | null;
 };
 
 export default function SubmitForReviewForm({
   documentId,
   currentStatus,
   reviewers,
+  documentTitle,
+  latestVersionNo,
 }: SubmitForReviewFormProps) {
   const router = useRouter();
   const supabase = createClient();
@@ -91,6 +95,14 @@ export default function SubmitForReviewForm({
       },
     });
 
+    await supabase.from("notifications").insert({
+      user_id: reviewerId,
+      type: "review_assigned",
+      title: "Document Assigned for Review",
+      message: `You have been assigned to review "${documentTitle}".`,
+      document_id: documentId,
+    });
+
     router.refresh();
   }
 
@@ -103,6 +115,12 @@ export default function SubmitForReviewForm({
       <p className="muted-copy mt-2 text-sm">
         Select a reviewer and move this document to the pending review stage.
       </p>
+
+      {latestVersionNo !== null && (
+        <p className="mt-2 inline-flex items-center rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800">
+          Version {latestVersionNo} (latest) will be submitted
+        </p>
+      )}
 
       {reviewers.length === 0 ? (
         <p className="mt-4 text-sm text-red-600">

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import PDFParser from "pdf2json";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
@@ -34,56 +35,92 @@ function decodePdfText(value: string) {
   }
 }
 
+function recoverWordBoundaries(text: string): string {
+  return text
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/(\d)([A-Za-z])/g, "$1 $2")
+    .replace(/([A-Za-z])(\d)/g, "$1 $2")
+    .replace(/[ \t]+/g, " ");
+}
+
+function extractFromPdfData(pdfData: PdfData): string {
+  const pages = pdfData.Pages || [];
+
+  return pages
+    .map((page) => {
+      const textItems = page.Texts || [];
+
+      return textItems
+        .map((textItem) => {
+          const runs = textItem.R || [];
+
+          return runs
+            .map((run) => decodePdfText(run.T || ""))
+            .join("");
+        })
+        .join(" ");
+    })
+    .join("\n\n")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
 function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
   return new Promise((resolve, reject) => {
-    const pdfParser = new PDFParser();
+    const pdfParser = new PDFParser(null, 1);
 
     pdfParser.on("pdfParser_dataError", (errorData: unknown) => {
-  let errorMessage = "Failed to parse the PDF file.";
+      let errorMessage = "Failed to parse the PDF file.";
 
-  if (errorData instanceof Error) {
-    errorMessage = errorData.message;
-  }
+      if (errorData instanceof Error) {
+        errorMessage = errorData.message;
+      }
 
-  if (
-    typeof errorData === "object" &&
-    errorData !== null &&
-    "parserError" in errorData
-  ) {
-    const parserError = (errorData as { parserError?: unknown }).parserError;
+      if (
+        typeof errorData === "object" &&
+        errorData !== null &&
+        "parserError" in errorData
+      ) {
+        const parserError = (errorData as { parserError?: unknown }).parserError;
 
-    if (parserError instanceof Error) {
-      errorMessage = parserError.message;
-    } else if (typeof parserError === "string") {
-      errorMessage = parserError;
-    }
-  }
+        if (parserError instanceof Error) {
+          errorMessage = parserError.message;
+        } else if (typeof parserError === "string") {
+          errorMessage = parserError;
+        }
+      }
 
-  reject(new Error(errorMessage));
-});
+      reject(new Error(errorMessage));
+    });
 
     pdfParser.on("pdfParser_dataReady", (pdfData: PdfData) => {
-      const pages = pdfData.Pages || [];
+      let bestText = "";
 
-      const extractedText = pages
-        .map((page) => {
-          const textItems = page.Texts || [];
+      try {
+        const rawText =
+          (pdfParser as unknown as { getRawTextContent?: () => string })
+            .getRawTextContent?.() || "";
 
-          return textItems
-            .map((textItem) => {
-              const runs = textItem.R || [];
+        const cleanedRaw = rawText
+          .replace(/-+\s*Page\s*\(\d+\)\s*Break-+/gi, "\n\n")
+          .replace(/\r\n/g, "\n")
+          .replace(/[ \t]+/g, " ")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
 
-              return runs
-                .map((run) => decodePdfText(run.T || ""))
-                .join("");
-            })
-            .join(" ");
-        })
-        .join("\n\n")
-        .replace(/[ \t]+/g, " ")
-        .trim();
+        if (cleanedRaw) {
+          bestText = cleanedRaw;
+        }
+      } catch {
+        // fall through to JSON-based extraction
+      }
 
-      resolve(extractedText);
+      if (!bestText) {
+        bestText = extractFromPdfData(pdfData);
+      }
+
+      resolve(recoverWordBoundaries(bestText));
     });
 
     pdfParser.parseBuffer(buffer);
@@ -165,18 +202,40 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    const { error: updateError } = await supabase
+    const { data: updateRows, error: updateError } = await supabase
       .from("document_versions")
       .update({
         content_text: extractedText,
       })
-      .eq("id", version.id);
+      .eq("id", version.id)
+      .select("id");
 
     if (updateError) {
       return NextResponse.json(
         { error: updateError.message },
         { status: 500 }
       );
+    }
+
+    if (!updateRows || updateRows.length === 0) {
+      const adminClient = createAdminClient();
+      const { error: adminUpdateError } = await adminClient
+        .from("document_versions")
+        .update({
+          content_text: extractedText,
+        })
+        .eq("id", version.id);
+
+      if (adminUpdateError) {
+        return NextResponse.json(
+          {
+            error:
+              "Failed to save extracted text to the database: " +
+              adminUpdateError.message,
+          },
+          { status: 500 }
+        );
+      }
     }
 
     await supabase.from("audit_logs").insert({

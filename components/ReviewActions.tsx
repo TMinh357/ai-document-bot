@@ -7,11 +7,15 @@ import { createClient } from "@/lib/supabase/client";
 type ReviewActionsProps = {
   documentId: string;
   approvalId: string;
+  documentOwnerId: string;
+  documentTitle: string;
 };
 
 export default function ReviewActions({
   documentId,
   approvalId,
+  documentOwnerId,
+  documentTitle,
 }: ReviewActionsProps) {
   const router = useRouter();
   const supabase = createClient();
@@ -22,6 +26,12 @@ export default function ReviewActions({
 
   async function handleReview(status: "approved" | "rejected") {
     setMessage("");
+
+    if (status === "rejected" && !comment.trim()) {
+      setMessage("A comment is required when rejecting a document.");
+      return;
+    }
+
     setIsLoading(true);
 
     const {
@@ -76,6 +86,15 @@ export default function ReviewActions({
       },
     });
 
+    await supabase.from("notifications").insert({
+      user_id: documentOwnerId,
+      type: status === "approved" ? "document_approved" : "document_rejected",
+      title:
+        status === "approved" ? "Document Approved" : "Document Rejected",
+      message: `Your document "${documentTitle}" has been ${status}${comment ? `: ${comment}` : "."}`,
+      document_id: documentId,
+    });
+
     router.refresh();
   }
 
@@ -89,7 +108,10 @@ export default function ReviewActions({
 
       <div className="mt-4">
         <label className="mb-1 block text-sm font-medium text-gray-800">
-          Review Comment
+          Review Comment{" "}
+          <span className="text-xs font-normal text-gray-500">
+            (optional for approval, required for rejection)
+          </span>
         </label>
 
         <textarea
