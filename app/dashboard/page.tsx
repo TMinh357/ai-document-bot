@@ -1,6 +1,7 @@
 import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationPanel from "@/components/NotificationPanel";
+import DashboardCharts from "@/components/DashboardCharts";
 import { requireUser } from "@/lib/supabase/auth";
 
 export default async function DashboardPage() {
@@ -37,6 +38,73 @@ export default async function DashboardPage() {
   const documentsCaption = isAdmin
     ? "Total documents in the system"
     : "Documents you own";
+
+  const chartDocsQuery = supabase
+    .from("documents")
+    .select("status, created_at");
+
+  const { data: chartDocs } = isAdmin
+    ? await chartDocsQuery
+    : await chartDocsQuery.eq("owner_id", user.id);
+
+  const statusCounts = {
+    draft: 0,
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    signed: 0,
+  };
+
+  (chartDocs ?? []).forEach((d) => {
+    if (d.status in statusCounts) {
+      statusCounts[d.status as keyof typeof statusCounts]++;
+    }
+  });
+
+  const now = new Date();
+  const monthlyCounts: { key: string; label: string; count: number }[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("en-US", {
+      month: "short",
+      year: "2-digit",
+    });
+    monthlyCounts.push({ key, label, count: 0 });
+  }
+
+  (chartDocs ?? []).forEach((d) => {
+    const date = new Date(d.created_at);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const bucket = monthlyCounts.find((m) => m.key === key);
+    if (bucket) bucket.count++;
+  });
+
+  let approvalRatio: {
+    approved: number;
+    rejected: number;
+    pending: number;
+  } | null = null;
+
+  if (canReview) {
+    const approvalsRatioQuery = supabase.from("approvals").select("status");
+
+    const { data: ratioData } = isAdmin
+      ? await approvalsRatioQuery
+      : await approvalsRatioQuery.eq("reviewer_id", user.id);
+
+    approvalRatio = { approved: 0, rejected: 0, pending: 0 };
+
+    (ratioData ?? []).forEach((a) => {
+      if (
+        a.status === "approved" ||
+        a.status === "rejected" ||
+        a.status === "pending"
+      ) {
+        approvalRatio![a.status as keyof typeof approvalRatio]++;
+      }
+    });
+  }
 
   return (
     <main className="page-shell text-gray-900">
@@ -146,6 +214,12 @@ export default async function DashboardPage() {
             <p className="muted-copy mt-2 text-sm">Unread notifications</p>
           </div>
         </div>
+
+        <DashboardCharts
+          statusCounts={statusCounts}
+          monthlyCounts={monthlyCounts}
+          approvalRatio={approvalRatio}
+        />
 
         <div className="mt-6 section-card rounded-[2rem] p-6 md:p-8">
           <h2 className="text-2xl font-semibold text-gray-900">Quick Actions</h2>

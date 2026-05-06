@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 type Signature = {
   id: string;
@@ -118,6 +119,15 @@ export default function SignDocumentPanel({
           >
             {isVerifying ? "Verifying..." : "Verify Integrity"}
           </button>
+
+          {hasSignatures && (
+            <Link
+              href={`/documents/${documentId}/certificate`}
+              className="rounded-xl border border-teal-300 bg-teal-50 px-5 py-3 text-sm font-medium text-teal-800 hover:bg-teal-100"
+            >
+              View Certificate
+            </Link>
+          )}
         </div>
       </div>
 

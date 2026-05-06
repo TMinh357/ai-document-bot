@@ -3,7 +3,21 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/LogoutButton";
 
-export default async function AdminAuditLogsPage() {
+type SearchParams = {
+  action?: string;
+  user?: string;
+  document?: string;
+  from?: string;
+  to?: string;
+};
+
+type PageProps = {
+  searchParams: Promise<SearchParams>;
+};
+
+export default async function AdminAuditLogsPage({ searchParams }: PageProps) {
+  const filters = await searchParams;
+
   const supabase = await createClient();
 
   const {
@@ -20,17 +34,62 @@ export default async function AdminAuditLogsPage() {
 
   if (callerProfile?.role !== "admin") redirect("/dashboard");
 
-  const [{ data: logs }, { data: profiles }] = await Promise.all([
-    supabase
-      .from("audit_logs")
-      .select("id, user_id, action, target_table, target_id, metadata, created_at")
-      .order("created_at", { ascending: false })
-      .limit(200),
-    supabase.from("profiles").select("id, full_name"),
+  let query = supabase
+    .from("audit_logs")
+    .select(
+      "id, user_id, action, target_table, target_id, metadata, created_at"
+    )
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (filters.action) {
+    query = query.eq("action", filters.action);
+  }
+  if (filters.user) {
+    query = query.eq("user_id", filters.user);
+  }
+  if (filters.document) {
+    query = query.eq("target_table", "documents").eq("target_id", filters.document);
+  }
+  if (filters.from) {
+    query = query.gte("created_at", new Date(filters.from).toISOString());
+  }
+  if (filters.to) {
+    const toDate = new Date(filters.to);
+    toDate.setDate(toDate.getDate() + 1);
+    query = query.lt("created_at", toDate.toISOString());
+  }
+
+  const [
+    { data: logs },
+    { data: actionRows },
+    { data: profiles },
+    { data: documents },
+  ] = await Promise.all([
+    query,
+    supabase.from("audit_logs").select("action"),
+    supabase.from("profiles").select("id, full_name").order("full_name"),
+    supabase.from("documents").select("id, title").order("title"),
   ]);
+
+  const uniqueActions = Array.from(
+    new Set((actionRows ?? []).map((r) => r.action).filter(Boolean))
+  ).sort();
 
   const profileMap = new Map(
     (profiles ?? []).map((p) => [p.id, p.full_name])
+  );
+
+  const documentMap = new Map(
+    (documents ?? []).map((d) => [d.id, d.title])
+  );
+
+  const hasFilters = !!(
+    filters.action ||
+    filters.user ||
+    filters.document ||
+    filters.from ||
+    filters.to
   );
 
   return (
@@ -44,7 +103,7 @@ export default async function AdminAuditLogsPage() {
             </h1>
             <p className="muted-copy mt-2">
               Full activity history of every action taken in the system.
-              Showing latest 200 entries.
+              Showing the latest 500 matching entries.
             </p>
           </div>
 
@@ -56,12 +115,111 @@ export default async function AdminAuditLogsPage() {
           </div>
         </div>
 
+        <form
+          method="GET"
+          className="section-card mb-6 rounded-[2rem] p-6 md:p-8"
+        >
+          <h2 className="text-lg font-semibold text-gray-900">Filters</h2>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-800">
+                Action
+              </label>
+              <select
+                name="action"
+                defaultValue={filters.action ?? ""}
+                className="select-field"
+              >
+                <option value="">All actions</option>
+                {uniqueActions.map((action) => (
+                  <option key={action} value={action}>
+                    {action}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-800">
+                User
+              </label>
+              <select
+                name="user"
+                defaultValue={filters.user ?? ""}
+                className="select-field"
+              >
+                <option value="">All users</option>
+                {(profiles ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.full_name || p.id}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-800">
+                Document
+              </label>
+              <select
+                name="document"
+                defaultValue={filters.document ?? ""}
+                className="select-field"
+              >
+                <option value="">All documents</option>
+                {(documents ?? []).map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-800">
+                From date
+              </label>
+              <input
+                type="date"
+                name="from"
+                defaultValue={filters.from ?? ""}
+                className="input-field"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-800">
+                To date
+              </label>
+              <input
+                type="date"
+                name="to"
+                defaultValue={filters.to ?? ""}
+                className="input-field"
+              />
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <button type="submit" className="button-primary">
+              Apply Filters
+            </button>
+
+            {hasFilters && (
+              <Link href="/admin/audit-logs" className="button-secondary">
+                Clear Filters
+              </Link>
+            )}
+          </div>
+        </form>
+
         <div className="section-card overflow-hidden rounded-[2rem]">
           <div className="border-b border-gray-200/70 px-6 py-5">
             <h2 className="text-lg font-semibold text-gray-900">
               Activity Log{" "}
               <span className="ml-2 text-sm font-normal text-gray-500">
-                ({logs?.length ?? 0} entries)
+                ({logs?.length ?? 0} {logs?.length === 1 ? "entry" : "entries"})
               </span>
             </h2>
           </div>
@@ -84,6 +242,16 @@ export default async function AdminAuditLogsPage() {
                             </span>
                           </span>
                         )}
+                        {log.target_table === "documents" &&
+                          log.target_id &&
+                          documentMap.get(log.target_id) && (
+                            <Link
+                              href={`/documents/${log.target_id}`}
+                              className="text-xs font-medium text-blue-600 hover:underline"
+                            >
+                              {documentMap.get(log.target_id)}
+                            </Link>
+                          )}
                       </div>
 
                       <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-500">
@@ -95,9 +263,7 @@ export default async function AdminAuditLogsPage() {
                               : "System"}
                           </span>
                         </span>
-                        <span>
-                          {new Date(log.created_at).toLocaleString()}
-                        </span>
+                        <span>{new Date(log.created_at).toLocaleString()}</span>
                       </div>
 
                       {log.metadata &&
@@ -117,7 +283,9 @@ export default async function AdminAuditLogsPage() {
               ))
             ) : (
               <div className="px-6 py-10 text-center text-gray-600">
-                No audit logs found.
+                {hasFilters
+                  ? "No logs match the current filters."
+                  : "No audit logs found."}
               </div>
             )}
           </div>
