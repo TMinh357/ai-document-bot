@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import PDFParser from "pdf2json";
+import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -11,123 +11,17 @@ type RouteContext = {
   }>;
 };
 
-type PdfTextRun = {
-  T?: string;
-};
+async function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
+  const result = await pdfParse(buffer);
 
-type PdfTextItem = {
-  R?: PdfTextRun[];
-};
-
-type PdfPage = {
-  Texts?: PdfTextItem[];
-};
-
-type PdfData = {
-  Pages?: PdfPage[];
-};
-
-function decodePdfText(value: string) {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function recoverWordBoundaries(text: string): string {
-  return text
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
-    .replace(/(\d)([A-Za-z])/g, "$1 $2")
-    .replace(/([A-Za-z])(\d)/g, "$1 $2")
-    .replace(/[ \t]+/g, " ");
-}
-
-function extractFromPdfData(pdfData: PdfData): string {
-  const pages = pdfData.Pages || [];
-
-  return pages
-    .map((page) => {
-      const textItems = page.Texts || [];
-
-      return textItems
-        .map((textItem) => {
-          const runs = textItem.R || [];
-
-          return runs
-            .map((run) => decodePdfText(run.T || ""))
-            .join("");
-        })
-        .join(" ");
-    })
-    .join("\n\n")
+  return result.text
+    .replace(/\r\n/g, "\n")
     .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const pdfParser = new PDFParser(null, true);
-
-    pdfParser.on("pdfParser_dataError", (errorData: unknown) => {
-      let errorMessage = "Failed to parse the PDF file.";
-
-      if (errorData instanceof Error) {
-        errorMessage = errorData.message;
-      }
-
-      if (
-        typeof errorData === "object" &&
-        errorData !== null &&
-        "parserError" in errorData
-      ) {
-        const parserError = (errorData as { parserError?: unknown }).parserError;
-
-        if (parserError instanceof Error) {
-          errorMessage = parserError.message;
-        } else if (typeof parserError === "string") {
-          errorMessage = parserError;
-        }
-      }
-
-      reject(new Error(errorMessage));
-    });
-
-    pdfParser.on("pdfParser_dataReady", (pdfData: PdfData) => {
-      let bestText = "";
-
-      try {
-        const rawText =
-          (pdfParser as unknown as { getRawTextContent?: () => string })
-            .getRawTextContent?.() || "";
-
-        const cleanedRaw = rawText
-          .replace(/-+\s*Page\s*\(\d+\)\s*Break-+/gi, "\n\n")
-          .replace(/\r\n/g, "\n")
-          .replace(/[ \t]+/g, " ")
-          .replace(/\n{3,}/g, "\n\n")
-          .trim();
-
-        if (cleanedRaw) {
-          bestText = cleanedRaw;
-        }
-      } catch {
-        // fall through to JSON-based extraction
-      }
-
-      if (!bestText) {
-        bestText = extractFromPdfData(pdfData);
-      }
-
-      resolve(recoverWordBoundaries(bestText));
-    });
-
-    pdfParser.parseBuffer(buffer);
-  });
-}
-
-export async function POST(request: Request, context: RouteContext) {
+export async function POST(_request: Request, context: RouteContext) {
   try {
     const { id } = await context.params;
     const supabase = await createClient();
@@ -246,7 +140,7 @@ export async function POST(request: Request, context: RouteContext) {
       metadata: {
         version_id: version.id,
         character_count: extractedText.length,
-        parser: "pdf2json",
+        parser: "pdf-parse",
       },
     });
 

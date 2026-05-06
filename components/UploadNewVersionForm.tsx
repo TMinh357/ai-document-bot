@@ -4,6 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_MB = 10;
+
+function safeFileName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
 type UploadNewVersionFormProps = {
   documentId: string;
   documentStatus: string;
@@ -37,6 +44,14 @@ export default function UploadNewVersionForm({
       return;
     }
 
+    if (file.size > MAX_FILE_BYTES) {
+      const sizeMb = (file.size / 1024 / 1024).toFixed(1);
+      setMessage(
+        `File is too large (${sizeMb} MB). Maximum allowed size is ${MAX_FILE_MB} MB.`
+      );
+      return;
+    }
+
     setIsLoading(true);
 
     const {
@@ -50,12 +65,11 @@ export default function UploadNewVersionForm({
       return;
     }
 
-    const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const filePath = `${user.id}/${documentId}/${Date.now()}-${safeFileName}`;
+    const stagingPath = `${user.id}/_staging/${crypto.randomUUID()}/${safeFileName(file.name)}`;
 
     const { error: uploadError } = await supabase.storage
       .from("documents")
-      .upload(filePath, file, {
+      .upload(stagingPath, file, {
         cacheControl: "3600",
         upsert: false,
       });
@@ -66,46 +80,22 @@ export default function UploadNewVersionForm({
       return;
     }
 
-    const { error: versionError } = await supabase
-      .from("document_versions")
-      .insert({
-        document_id: documentId,
-        version_no: nextVersionNo,
-        file_path: filePath,
-        content_text: "",
-        created_by: user.id,
-      });
-
-    if (versionError) {
-      setMessage(versionError.message);
-      setIsLoading(false);
-      return;
-    }
-
-    const { error: documentError } = await supabase
-      .from("documents")
-      .update({
-        status: "draft",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", documentId);
-
-    if (documentError) {
-      setMessage(documentError.message);
-      setIsLoading(false);
-      return;
-    }
-
-    await supabase.from("audit_logs").insert({
-      user_id: user.id,
-      action: "UPLOAD_NEW_VERSION",
-      target_table: "documents",
-      target_id: documentId,
-      metadata: {
-        version_no: nextVersionNo,
-        file_path: filePath,
-      },
+    const response = await fetch(`/api/documents/${documentId}/versions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        stagingPath,
+        fileName: file.name,
+      }),
     });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      setMessage(result?.error || "Failed to upload new version.");
+      setIsLoading(false);
+      return;
+    }
 
     setFile(null);
     setIsLoading(false);
@@ -129,13 +119,15 @@ export default function UploadNewVersionForm({
         <input
           className="file-field"
           type="file"
-          accept=".pdf"
+          accept=".pdf,application/pdf"
           onChange={(e) => setFile(e.target.files?.[0] || null)}
           required
         />
 
         {file && (
-          <p className="muted-copy text-sm">Selected file: {file.name}</p>
+          <p className="muted-copy text-sm">
+            Selected file: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
+          </p>
         )}
 
         {message && <p className="text-sm text-red-600">{message}</p>}

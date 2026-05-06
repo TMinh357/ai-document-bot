@@ -5,6 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_MB = 10;
+
+function safeFileName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
 export default function NewDocumentPage() {
   const router = useRouter();
   const supabase = createClient();
@@ -19,13 +26,21 @@ export default function NewDocumentPage() {
   async function handleCreateDocument(e: React.FormEvent) {
     e.preventDefault();
     setMessage("");
-    setIsLoading(true);
 
     if (!file) {
       setMessage("Please select a PDF file before creating the document.");
-      setIsLoading(false);
       return;
     }
+
+    if (file.size > MAX_FILE_BYTES) {
+      const sizeMb = (file.size / 1024 / 1024).toFixed(1);
+      setMessage(
+        `File is too large (${sizeMb} MB). Maximum allowed size is ${MAX_FILE_MB} MB.`
+      );
+      return;
+    }
+
+    setIsLoading(true);
 
     const {
       data: { user },
@@ -38,29 +53,11 @@ export default function NewDocumentPage() {
       return;
     }
 
-    const { data: createdDocument, error: documentError } = await supabase
-      .from("documents")
-      .insert({
-        title,
-        description,
-        owner_id: user.id,
-        status: "draft",
-      })
-      .select("id")
-      .single();
-
-    if (documentError || !createdDocument) {
-      setMessage(documentError?.message || "Failed to create document.");
-      setIsLoading(false);
-      return;
-    }
-
-    const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const filePath = `${user.id}/${createdDocument.id}/${Date.now()}-${safeFileName}`;
+    const stagingPath = `${user.id}/_staging/${crypto.randomUUID()}/${safeFileName(file.name)}`;
 
     const { error: uploadError } = await supabase.storage
       .from("documents")
-      .upload(filePath, file, {
+      .upload(stagingPath, file, {
         cacheControl: "3600",
         upsert: false,
       });
@@ -71,18 +68,21 @@ export default function NewDocumentPage() {
       return;
     }
 
-    const { error: versionError } = await supabase
-      .from("document_versions")
-      .insert({
-        document_id: createdDocument.id,
-        version_no: 1,
-        file_path: filePath,
-        content_text: "",
-        created_by: user.id,
-      });
+    const response = await fetch("/api/documents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        description,
+        stagingPath,
+        fileName: file.name,
+      }),
+    });
 
-    if (versionError) {
-      setMessage(versionError.message);
+    const result = await response.json();
+
+    if (!response.ok) {
+      setMessage(result?.error || "Failed to create document.");
       setIsLoading(false);
       return;
     }
@@ -140,19 +140,19 @@ export default function NewDocumentPage() {
 
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
-                PDF File
+                PDF File (max {MAX_FILE_MB} MB)
               </label>
               <input
                 className="file-field"
                 type="file"
-                accept=".pdf"
+                accept=".pdf,application/pdf"
                 onChange={(e) => setFile(e.target.files?.[0] || null)}
                 required
               />
 
               {file && (
                 <p className="muted-copy mt-2 text-sm">
-                  Selected file: {file.name}
+                  Selected file: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
                 </p>
               )}
             </div>

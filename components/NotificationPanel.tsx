@@ -16,6 +16,7 @@ type Notification = {
 
 const TYPE_CONFIG: Record<string, { dot: string; label: string }> = {
   review_assigned: { dot: "bg-blue-500", label: "Review" },
+  review_progress: { dot: "bg-teal-500", label: "Progress" },
   document_approved: { dot: "bg-green-500", label: "Approved" },
   document_rejected: { dot: "bg-red-500", label: "Rejected" },
 };

@@ -90,17 +90,34 @@ export default async function DocumentDetailPage({ params }: PageProps) {
 
   const { data: approvals } = await supabase
     .from("approvals")
-    .select("id, reviewer_id, status, comment, created_at, reviewed_at")
+    .select(
+      "id, reviewer_id, status, comment, round_no, created_at, reviewed_at"
+    )
     .eq("document_id", id)
+    .order("round_no", { ascending: false })
     .order("created_at", { ascending: false });
 
-  const { data: currentApproval } = await supabase
-    .from("approvals")
-    .select("id, status, reviewer_id, comment")
-    .eq("document_id", id)
-    .eq("reviewer_id", user.id)
-    .eq("status", "pending")
-    .maybeSingle();
+  const allApprovals = approvals || [];
+  const currentRound = allApprovals.reduce(
+    (max, a) => Math.max(max, a.round_no ?? 1),
+    0
+  );
+  const currentRoundApprovals = allApprovals.filter(
+    (a) => (a.round_no ?? 1) === currentRound
+  );
+  const currentApproval = currentRoundApprovals.find(
+    (a) => a.reviewer_id === user.id && a.status === "pending"
+  );
+  const approvedCount = currentRoundApprovals.filter(
+    (a) => a.status === "approved"
+  ).length;
+  const pendingCount = currentRoundApprovals.filter(
+    (a) => a.status === "pending"
+  ).length;
+  const rejectedCount = currentRoundApprovals.filter(
+    (a) => a.status === "rejected"
+  ).length;
+  const totalReviewers = currentRoundApprovals.length;
 
   const { data: latestAIResult } = await supabase
     .from("document_ai_results")
@@ -126,7 +143,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
   const participantIds = Array.from(
     new Set([
       document.owner_id,
-      ...(approvals || []).map((a) => a.reviewer_id),
+      ...allApprovals.map((a) => a.reviewer_id),
       ...(signatures || []).map((s) => s.signer_id),
       ...(versions || [])
         .map((v) => v.created_by)
@@ -174,26 +191,51 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     });
   });
 
-  (approvals || []).forEach((a) => {
+  const approvalsByRound = new Map<number, typeof allApprovals>();
+  for (const a of allApprovals) {
+    const round = a.round_no ?? 1;
+    const list = approvalsByRound.get(round) || [];
+    list.push(a);
+    approvalsByRound.set(round, list);
+  }
+
+  for (const [round, roundApprovals] of approvalsByRound.entries()) {
+    const earliest = roundApprovals.reduce(
+      (min, a) => (a.created_at < min ? a.created_at : min),
+      roundApprovals[0].created_at
+    );
+
+    const reviewerNames = roundApprovals
+      .map((a) => reviewerNameMap.get(a.reviewer_id) || a.reviewer_id)
+      .join(", ");
+
     timelineEvents.push({
-      id: `submitted-${a.id}`,
+      id: `submitted-round-${round}`,
       type: "submitted",
-      title: "Submitted for review",
-      by: `→ ${reviewerNameMap.get(a.reviewer_id) || a.reviewer_id}`,
-      timestamp: a.created_at,
+      title: `Submitted for review (round ${round})`,
+      by: `→ ${reviewerNames}`,
+      timestamp: earliest,
     });
 
-    if (a.reviewed_at && (a.status === "approved" || a.status === "rejected")) {
-      timelineEvents.push({
-        id: `decision-${a.id}`,
-        type: a.status as "approved" | "rejected",
-        title: a.status === "approved" ? "Approved" : "Rejected",
-        by: reviewerNameMap.get(a.reviewer_id) || a.reviewer_id,
-        comment: a.comment,
-        timestamp: a.reviewed_at,
-      });
+    for (const a of roundApprovals) {
+      if (
+        a.reviewed_at &&
+        (a.status === "approved" || a.status === "rejected")
+      ) {
+        timelineEvents.push({
+          id: `decision-${a.id}`,
+          type: a.status as "approved" | "rejected",
+          title:
+            a.status === "approved"
+              ? `Approved (round ${round})`
+              : `Rejected (round ${round})`,
+          by: reviewerNameMap.get(a.reviewer_id) || a.reviewer_id,
+          comment: a.comment,
+          timestamp: a.reviewed_at,
+        });
+      }
     }
-  });
+  }
 
   (signatures || []).forEach((s) => {
     if (s.signed_at) {
@@ -213,11 +255,11 @@ export default async function DocumentDetailPage({ params }: PageProps) {
   );
 
   const canReview =
-    document.status === "pending" && currentApproval?.status === "pending";
+    document.status === "pending" && !!currentApproval;
 
   const latestRejection =
     document.status === "rejected"
-      ? (approvals || []).find((a) => a.status === "rejected")
+      ? currentRoundApprovals.find((a) => a.status === "rejected")
       : null;
 
   return (
@@ -413,17 +455,49 @@ export default async function DocumentDetailPage({ params }: PageProps) {
             documentId={document.id}
             currentStatus={document.status}
             reviewers={reviewers || []}
-            documentTitle={document.title}
             latestVersionNo={latestVersion?.version_no ?? null}
           />
         )}
 
+        {document.status === "pending" && totalReviewers > 0 && (
+          <section className="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.3em] text-teal-700">
+                  Approval Progress · Round {currentRound}
+                </p>
+                <h2 className="mt-2 text-xl font-bold text-gray-900">
+                  {approvedCount} of {totalReviewers} reviewers approved
+                </h2>
+                <p className="mt-1 text-sm text-gray-600">
+                  {pendingCount} pending · {approvedCount} approved ·{" "}
+                  {rejectedCount} rejected
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {currentRoundApprovals.map((approval) => (
+                <div
+                  key={approval.id}
+                  className="flex items-center justify-between rounded-xl border border-gray-200 px-4 py-2"
+                >
+                  <p className="text-sm font-medium text-gray-900">
+                    {reviewerNameMap.get(approval.reviewer_id) ||
+                      approval.reviewer_id}
+                  </p>
+                  <StatusBadge status={approval.status} />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {canReview && currentApproval && (
           <ReviewActions
-            documentId={document.id}
             approvalId={currentApproval.id}
-            documentOwnerId={document.owner_id}
-            documentTitle={document.title}
+            approvedCount={approvedCount}
+            totalCount={totalReviewers}
           />
         )}
 
@@ -436,47 +510,64 @@ export default async function DocumentDetailPage({ params }: PageProps) {
         <section className="mt-8 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
           <h2 className="text-2xl font-bold text-gray-900">Approval History</h2>
 
-          <div className="mt-5 divide-y divide-gray-200 rounded-2xl border border-gray-200">
-            {approvals && approvals.length > 0 ? (
-              approvals.map((approval) => (
-                <div key={approval.id} className="p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="font-semibold text-gray-900">
-                        Reviewer:{" "}
-                        {reviewerNameMap.get(approval.reviewer_id) ||
-                          approval.reviewer_id}
-                      </p>
-
-                      <p className="mt-1 text-sm text-gray-600">
-                        Requested at:{" "}
-                        {new Date(approval.created_at).toLocaleString()}
-                      </p>
-
-                      {approval.reviewed_at && (
-                        <p className="mt-1 text-sm text-gray-600">
-                          Reviewed at:{" "}
-                          {new Date(approval.reviewed_at).toLocaleString()}
-                        </p>
+          {allApprovals.length === 0 ? (
+            <p className="mt-4 text-gray-600">
+              No approval history available.
+            </p>
+          ) : (
+            <div className="mt-5 space-y-6">
+              {Array.from(approvalsByRound.entries())
+                .sort(([a], [b]) => b - a)
+                .map(([round, roundApprovals]) => (
+                  <div key={round}>
+                    <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-gray-600">
+                      Round {round}
+                      {round === currentRound && (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-semibold text-teal-800">
+                          Current
+                        </span>
                       )}
-                    </div>
-
-                    <StatusBadge status={approval.status} />
-                  </div>
-
-                  {approval.comment && (
-                    <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-gray-700">
-                      {approval.comment}
                     </p>
-                  )}
-                </div>
-              ))
-            ) : (
-              <div className="p-4 text-gray-600">
-                No approval history available.
-              </div>
-            )}
-          </div>
+
+                    <div className="divide-y divide-gray-200 rounded-2xl border border-gray-200">
+                      {roundApprovals.map((approval) => (
+                        <div key={approval.id} className="p-4">
+                          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <p className="font-semibold text-gray-900">
+                                Reviewer:{" "}
+                                {reviewerNameMap.get(approval.reviewer_id) ||
+                                  approval.reviewer_id}
+                              </p>
+
+                              <p className="mt-1 text-sm text-gray-600">
+                                Requested at:{" "}
+                                {new Date(approval.created_at).toLocaleString()}
+                              </p>
+
+                              {approval.reviewed_at && (
+                                <p className="mt-1 text-sm text-gray-600">
+                                  Reviewed at:{" "}
+                                  {new Date(approval.reviewed_at).toLocaleString()}
+                                </p>
+                              )}
+                            </div>
+
+                            <StatusBadge status={approval.status} />
+                          </div>
+
+                          {approval.comment && (
+                            <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-gray-700">
+                              {approval.comment}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </section>
 
         <DocumentTimeline events={timelineEvents} />

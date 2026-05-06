@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
 type Reviewer = {
   id: string;
@@ -14,7 +13,6 @@ type SubmitForReviewFormProps = {
   documentId: string;
   currentStatus: string;
   reviewers: Reviewer[];
-  documentTitle: string;
   latestVersionNo: number | null;
 };
 
@@ -22,13 +20,11 @@ export default function SubmitForReviewForm({
   documentId,
   currentStatus,
   reviewers,
-  documentTitle,
   latestVersionNo,
 }: SubmitForReviewFormProps) {
   const router = useRouter();
-  const supabase = createClient();
 
-  const [reviewerId, setReviewerId] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -36,72 +32,44 @@ export default function SubmitForReviewForm({
     return null;
   }
 
+  function toggleReviewer(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
   async function handleSubmitForReview(e: React.FormEvent) {
     e.preventDefault();
     setMessage("");
+
+    const reviewerIds = Array.from(selectedIds);
+
+    if (reviewerIds.length === 0) {
+      setMessage("Select at least one reviewer.");
+      return;
+    }
+
     setIsLoading(true);
 
-    if (!reviewerId) {
-      setMessage("Please select a reviewer.");
-      setIsLoading(false);
-      return;
-    }
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      setMessage("You must be signed in.");
-      setIsLoading(false);
-      return;
-    }
-
-    const { error: approvalError } = await supabase.from("approvals").insert({
-      document_id: documentId,
-      reviewer_id: reviewerId,
-      status: "pending",
+    const response = await fetch(`/api/documents/${documentId}/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reviewerIds }),
     });
 
-    if (approvalError) {
-      setMessage(approvalError.message);
+    const result = await response.json();
+
+    if (!response.ok) {
+      setMessage(result?.error || "Failed to submit for review.");
       setIsLoading(false);
       return;
     }
-
-    const { error: documentError } = await supabase
-      .from("documents")
-      .update({
-        status: "pending",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", documentId);
-
-    if (documentError) {
-      setMessage(documentError.message);
-      setIsLoading(false);
-      return;
-    }
-
-    await supabase.from("audit_logs").insert({
-      user_id: user.id,
-      action: "SUBMIT_FOR_REVIEW",
-      target_table: "documents",
-      target_id: documentId,
-      metadata: {
-        reviewer_id: reviewerId,
-        status: "pending",
-      },
-    });
-
-    await supabase.from("notifications").insert({
-      user_id: reviewerId,
-      type: "review_assigned",
-      title: "Document Assigned for Review",
-      message: `You have been assigned to review "${documentTitle}".`,
-      document_id: documentId,
-    });
 
     router.refresh();
   }
@@ -113,7 +81,8 @@ export default function SubmitForReviewForm({
       </h2>
 
       <p className="muted-copy mt-2 text-sm">
-        Select a reviewer and move this document to the pending review stage.
+        Select one or more reviewers. The document will be approved only when
+        every selected reviewer approves; a single rejection ends this round.
       </p>
 
       {latestVersionNo !== null && (
@@ -130,34 +99,46 @@ export default function SubmitForReviewForm({
       ) : (
         <form onSubmit={handleSubmitForReview} className="mt-4 space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-800">
-              Reviewer
+            <label className="mb-2 block text-sm font-medium text-gray-800">
+              Reviewers ({selectedIds.size} selected)
             </label>
 
-            <select
-              className="select-field"
-              value={reviewerId}
-              onChange={(e) => setReviewerId(e.target.value)}
-              required
-            >
-              <option value="">Select a reviewer</option>
-
-              {reviewers.map((reviewer) => (
-                <option key={reviewer.id} value={reviewer.id}>
-                  {reviewer.full_name || reviewer.id} ({reviewer.role})
-                </option>
-              ))}
-            </select>
+            <div className="space-y-2 rounded-2xl border border-gray-200 p-3">
+              {reviewers.map((reviewer) => {
+                const checked = selectedIds.has(reviewer.id);
+                return (
+                  <label
+                    key={reviewer.id}
+                    className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-gray-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleReviewer(reviewer.id)}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-sm text-gray-900">
+                      {reviewer.full_name || reviewer.id}{" "}
+                      <span className="text-xs text-gray-500">
+                        ({reviewer.role})
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
 
           {message && <p className="text-sm text-red-600">{message}</p>}
 
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || selectedIds.size === 0}
             className="button-primary disabled:opacity-60"
           >
-            {isLoading ? "Submitting..." : "Submit for Review"}
+            {isLoading
+              ? "Submitting..."
+              : `Submit for Review (${selectedIds.size} reviewer${selectedIds.size === 1 ? "" : "s"})`}
           </button>
         </form>
       )}
