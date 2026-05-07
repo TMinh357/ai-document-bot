@@ -166,11 +166,65 @@ Both creation flows (new document, new version) use the same staging pattern:
 
 All `documents` / `document_versions` row inserts now happen via the admin client on the server — bypassing the validation gate by skipping the API call is impossible because the client can no longer insert rows directly.
 
+## Tightened SELECT RLS (documents + document_versions)
+
+Permissive `USING (TRUE)` SELECT policies were replaced with row-scoped checks so the anon-key client can only read rows the user is authorized for. Page-level role gates (`requireUser`, `requireRole`) remain as defense in depth on top.
+
+Access matrix (SELECT):
+- **owner** — `owner_id = auth.uid()`
+- **assigned reviewer** (any round) — has at least one `approvals` row with `reviewer_id = auth.uid()` for that document
+- **admin** — `profiles.role = 'admin'` for the calling user
+
+`document_versions` inherits visibility from `documents` via `EXISTS (SELECT 1 FROM documents WHERE documents.id = document_versions.document_id)` — RLS on the inner query ensures only versions of accessible documents are returned, so the rule lives in one place.
+
+Service-role API routes (`createAdminClient()`) bypass RLS, so server-side writes/admin operations are unaffected.
+
+Schema migration (run once in Supabase SQL editor):
+```sql
+DROP POLICY IF EXISTS "Authenticated users can view documents" ON documents;
+DROP POLICY IF EXISTS "Authenticated users can view document versions" ON document_versions;
+
+CREATE POLICY "Users can view related documents"
+ON documents FOR SELECT
+TO authenticated
+USING (
+  owner_id = auth.uid()
+  OR EXISTS (
+    SELECT 1 FROM approvals
+    WHERE approvals.document_id = documents.id
+      AND approvals.reviewer_id = auth.uid()
+  )
+  OR (SELECT role FROM profiles WHERE id = auth.uid()) = 'admin'
+);
+
+CREATE POLICY "Users can view versions of accessible documents"
+ON document_versions FOR SELECT
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM documents
+    WHERE documents.id = document_versions.document_id
+  )
+);
+```
+
+**Verification — gotcha**: the Supabase SQL editor runs as the `postgres` superuser by default, which **bypasses RLS entirely**. So `SELECT * FROM documents` in Studio always returns every row regardless of policies. There are two correct ways to verify:
+
+- **Through the app (recommended)**: sign in as employee / reviewer / admin in three browser sessions and confirm `/documents`, `/reviews`, `/admin/documents` show the expected scoped lists. This is what RLS actually gates against (the anon-key client) and is the most defense-panel-friendly demo.
+- **In Studio with impersonation** — wrap each test in a transaction:
+```sql
+BEGIN;
+SET LOCAL ROLE authenticated;
+SET LOCAL "request.jwt.claims" TO '{"sub":"<user-uuid>","role":"authenticated"}';
+SELECT id, title, owner_id FROM documents;
+ROLLBACK;
+```
+Swap the `sub` UUID for the user being impersonated. Each `SET LOCAL` is bounded to the transaction, so `ROLLBACK` cleanly resets the session.
+
 ## Known gaps
 
 - AI summary is heuristic, not OpenAI-powered
 - Signature is just a file hash — no cryptographic proof of signer identity
-- Documents / document_versions SELECT RLS still `USING (TRUE)`
 - Scanned/image-only PDFs still produce no text (no OCR step) — text-based PDFs only
 - `SUPABASE_SERVICE_ROLE_KEY` must be set in Vercel env vars (User Management page fails at render time without it)
 
@@ -178,7 +232,6 @@ All `documents` / `document_versions` row inserts now happen via the admin clien
 
 1. **Replace mock AI with real OpenAI calls.** `openai` is installed; `app/api/documents/[id]/ai-summary` and `ai-chat` should call GPT-4 instead of doing string heuristics.
 2. **Real cryptographic signature** via Web Crypto API (per-user keypair, sign the hash with the private key, verify with the public key).
-3. **Tighten RLS** on `documents` and `document_versions` SELECT — defense in depth on top of page-level gates. SQL ready in earlier conversation.
 
 Lower-priority but valuable: multi-reviewer workflows, inline PDF viewer with `react-pdf` + annotations, email notifications via Resend, review SLAs/due dates, Supabase Realtime for live updates, Playwright E2E tests, README with architecture diagram, demo video.
 
