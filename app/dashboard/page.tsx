@@ -1,6 +1,6 @@
 import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
-import NotificationPanel from "@/components/NotificationPanel";
+import NotificationBell from "@/components/NotificationBell";
 import DashboardCharts from "@/components/DashboardCharts";
 import { requireUser } from "@/lib/supabase/auth";
 import { fireOverdueReminders } from "@/lib/review-reminders";
@@ -72,14 +72,13 @@ export default async function DashboardPage() {
       new Date(r.due_at).getTime() - nowMs <= nearDueMs
   ).length;
 
-  const { data: notifications } = await supabase
+  const { count: unreadNotificationCount } = await supabase
     .from("notifications")
-    .select("id, type, title, message, document_id, is_read, created_at")
+    .select("*", { count: "exact", head: true })
     .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(20);
+    .eq("is_read", false);
 
-  const unreadCount = (notifications ?? []).filter((n) => !n.is_read).length;
+  const unreadCount = unreadNotificationCount ?? 0;
 
   const documentsCaption = isAdmin
     ? "Total documents in the system"
@@ -183,6 +182,8 @@ export default async function DashboardPage() {
                 Admin Panel
               </Link>
             )}
+
+            <NotificationBell />
 
             <LogoutButton />
           </div>
@@ -433,9 +434,6 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        <div className="mt-6">
-          <NotificationPanel initial={notifications ?? []} />
-        </div>
       </div>
     </main>
   );

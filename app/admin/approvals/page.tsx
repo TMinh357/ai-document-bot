@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/LogoutButton";
+import NotificationBell from "@/components/NotificationBell";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-amber-100 text-amber-700",
@@ -59,6 +60,7 @@ export default async function AdminApprovalsPage() {
             <Link href="/admin" className="button-secondary">
               Admin Panel
             </Link>
+            <NotificationBell />
             <LogoutButton />
           </div>
         </div>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/LogoutButton";
+import NotificationBell from "@/components/NotificationBell";
 
 export default async function AdminPage() {
   const supabase = await createClient();
@@ -53,6 +54,7 @@ export default async function AdminPage() {
             <Link href="/dashboard" className="button-secondary">
               Dashboard
             </Link>
+            <NotificationBell />
             <LogoutButton />
           </div>
         </div>

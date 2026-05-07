@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import LogoutButton from "@/components/LogoutButton";
+import NotificationBell from "@/components/NotificationBell";
 import RoleSelector from "@/components/admin/RoleSelector";
 
 export default async function AdminUsersPage() {
@@ -65,6 +66,7 @@ export default async function AdminUsersPage() {
             <Link href="/admin" className="button-secondary">
               Admin Panel
             </Link>
+            <NotificationBell />
             <LogoutButton />
           </div>
         </div>

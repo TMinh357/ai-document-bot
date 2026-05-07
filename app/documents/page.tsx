@@ -1,5 +1,6 @@
 import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
+import NotificationBell from "@/components/NotificationBell";
 import { requireUser } from "@/lib/supabase/auth";
 
 export default async function DocumentsPage() {
@@ -29,6 +30,8 @@ export default async function DocumentsPage() {
             <Link href="/dashboard" className="button-secondary">
               Dashboard
             </Link>
+
+            <NotificationBell />
 
             <LogoutButton />
           </div>

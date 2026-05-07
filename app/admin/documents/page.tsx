@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/LogoutButton";
+import NotificationBell from "@/components/NotificationBell";
 import DeleteDocumentButton from "@/components/admin/DeleteDocumentButton";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -139,6 +140,7 @@ export default async function AdminDocumentsPage({ searchParams }: PageProps) {
             <Link href="/admin" className="button-secondary">
               Admin Panel
             </Link>
+            <NotificationBell />
             <LogoutButton />
           </div>
         </div>

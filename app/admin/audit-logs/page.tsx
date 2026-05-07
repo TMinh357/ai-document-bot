@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/LogoutButton";
+import NotificationBell from "@/components/NotificationBell";
 
 type SearchParams = {
   action?: string;
@@ -111,6 +112,7 @@ export default async function AdminAuditLogsPage({ searchParams }: PageProps) {
             <Link href="/admin" className="button-secondary">
               Admin Panel
             </Link>
+            <NotificationBell />
             <LogoutButton />
           </div>
         </div>

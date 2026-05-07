@@ -1,5 +1,6 @@
 import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
+import NotificationBell from "@/components/NotificationBell";
 import { requireRole } from "@/lib/supabase/auth";
 import { fireOverdueReminders } from "@/lib/review-reminders";
 
@@ -51,6 +52,8 @@ export default async function ReviewsPage() {
             <Link href="/dashboard" className="button-secondary">
               Dashboard
             </Link>
+
+            <NotificationBell />
 
             <LogoutButton />
           </div>
