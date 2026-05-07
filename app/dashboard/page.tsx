@@ -3,12 +3,19 @@ import LogoutButton from "@/components/LogoutButton";
 import NotificationPanel from "@/components/NotificationPanel";
 import DashboardCharts from "@/components/DashboardCharts";
 import { requireUser } from "@/lib/supabase/auth";
+import { fireOverdueReminders } from "@/lib/review-reminders";
+
+const NEAR_DUE_HOURS = 24;
 
 export default async function DashboardPage() {
   const { supabase, user, profile, role } = await requireUser();
 
   const isAdmin = role === "admin";
   const canReview = role === "reviewer" || role === "admin";
+
+  if (canReview) {
+    await fireOverdueReminders(user.id);
+  }
 
   const documentCountQuery = supabase
     .from("documents")
@@ -18,13 +25,52 @@ export default async function DashboardPage() {
     ? await documentCountQuery
     : await documentCountQuery.eq("owner_id", user.id);
 
-  const { count: pendingReviewCount } = canReview
+  const { data: myPendingReviews } = canReview
     ? await supabase
         .from("approvals")
-        .select("*", { count: "exact", head: true })
+        .select(
+          `
+          id,
+          due_at,
+          round_no,
+          created_at,
+          document:documents (
+            id,
+            title,
+            status
+          )
+        `
+        )
         .eq("reviewer_id", user.id)
         .eq("status", "pending")
-    : { count: 0 };
+        .order("due_at", { ascending: true, nullsFirst: false })
+    : { data: [] };
+
+  type PendingReviewRow = {
+    id: string;
+    due_at: string | null;
+    round_no: number | null;
+    created_at: string;
+    document:
+      | { id: string; title: string | null; status: string }
+      | { id: string; title: string | null; status: string }[]
+      | null;
+  };
+
+  const pendingReviews = (myPendingReviews || []) as PendingReviewRow[];
+  const pendingReviewCount = pendingReviews.length;
+  const nowMs = Date.now();
+  const nearDueMs = NEAR_DUE_HOURS * 60 * 60 * 1000;
+
+  const overdueCount = pendingReviews.filter(
+    (r) => r.due_at && new Date(r.due_at).getTime() < nowMs
+  ).length;
+  const dueSoonCount = pendingReviews.filter(
+    (r) =>
+      r.due_at &&
+      new Date(r.due_at).getTime() >= nowMs &&
+      new Date(r.due_at).getTime() - nowMs <= nearDueMs
+  ).length;
 
   const { data: notifications } = await supabase
     .from("notifications")
@@ -193,11 +239,27 @@ export default async function DashboardPage() {
               </h2>
 
               <p className="mt-3 text-4xl font-semibold text-gray-900">
-                {pendingReviewCount ?? 0}
+                {pendingReviewCount}
               </p>
 
               <p className="muted-copy mt-2 text-sm">
                 Documents assigned to you for review
+                {overdueCount > 0 && (
+                  <>
+                    {" · "}
+                    <span className="font-semibold text-red-600">
+                      {overdueCount} overdue
+                    </span>
+                  </>
+                )}
+                {dueSoonCount > 0 && (
+                  <>
+                    {" · "}
+                    <span className="font-semibold text-amber-600">
+                      {dueSoonCount} due soon
+                    </span>
+                  </>
+                )}
               </p>
             </div>
           )}
@@ -220,6 +282,103 @@ export default async function DashboardPage() {
           monthlyCounts={monthlyCounts}
           approvalRatio={approvalRatio}
         />
+
+        {canReview && pendingReviews.length > 0 && (
+          <div className="mt-6 section-card rounded-[2rem] p-6 md:p-8">
+            <h2 className="text-2xl font-semibold text-gray-900">
+              My Pending Reviews
+            </h2>
+            <p className="muted-copy mt-2 text-sm">
+              Sorted by deadline. Overdue reviews are flagged red.
+            </p>
+
+            <div className="mt-5 divide-y divide-gray-200 rounded-2xl border border-gray-200">
+              {pendingReviews.map((row) => {
+                const document = Array.isArray(row.document)
+                  ? row.document[0]
+                  : row.document;
+                if (!document) return null;
+
+                const dueMs = row.due_at
+                  ? new Date(row.due_at).getTime()
+                  : null;
+                const isOverdue = dueMs !== null && dueMs < nowMs;
+                const isDueSoon =
+                  dueMs !== null &&
+                  dueMs >= nowMs &&
+                  dueMs - nowMs <= nearDueMs;
+
+                let dueLabel: string;
+                let dueClass: string;
+
+                if (dueMs === null) {
+                  dueLabel = "No deadline";
+                  dueClass = "bg-gray-100 text-gray-700";
+                } else if (isOverdue) {
+                  const days = Math.floor(
+                    (nowMs - dueMs) / (24 * 60 * 60 * 1000)
+                  );
+                  dueLabel = `Overdue by ${days === 0 ? "<1 day" : `${days} day${days === 1 ? "" : "s"}`}`;
+                  dueClass = "bg-red-100 text-red-800";
+                } else if (isDueSoon) {
+                  const hours = Math.max(
+                    1,
+                    Math.floor((dueMs - nowMs) / (60 * 60 * 1000))
+                  );
+                  dueLabel = `Due in ${hours}h`;
+                  dueClass = "bg-amber-100 text-amber-800";
+                } else {
+                  const days = Math.ceil(
+                    (dueMs - nowMs) / (24 * 60 * 60 * 1000)
+                  );
+                  dueLabel = `Due in ${days} day${days === 1 ? "" : "s"}`;
+                  dueClass = "bg-teal-50 text-teal-800";
+                }
+
+                return (
+                  <div
+                    key={row.id}
+                    className={`flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between ${
+                      isOverdue ? "bg-red-50/40" : ""
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-gray-900">
+                          {document.title || "(untitled)"}
+                        </p>
+                        <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-700">
+                          Round {row.round_no ?? 1}
+                        </span>
+                      </div>
+
+                      <p className="mt-1 text-xs text-gray-600">
+                        {row.due_at
+                          ? `Deadline: ${new Date(row.due_at).toLocaleString()}`
+                          : "No deadline set"}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${dueClass}`}
+                      >
+                        {dueLabel}
+                      </span>
+
+                      <Link
+                        href={`/documents/${document.id}`}
+                        className="button-primary text-sm"
+                      >
+                        Review
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="mt-6 section-card rounded-[2rem] p-6 md:p-8">
           <h2 className="text-2xl font-semibold text-gray-900">Quick Actions</h2>

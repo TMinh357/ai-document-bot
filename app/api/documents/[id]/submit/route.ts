@@ -55,6 +55,13 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
+    const dueInDaysRaw = Number(body?.dueInDays);
+    const dueInDays =
+      Number.isFinite(dueInDaysRaw) && dueInDaysRaw >= 1 && dueInDaysRaw <= 60
+        ? Math.floor(dueInDaysRaw)
+        : 7;
+    const dueAt = new Date(Date.now() + dueInDays * 24 * 60 * 60 * 1000);
+
     const admin = createAdminClient();
 
     const { data: document, error: documentError } = await admin
@@ -133,6 +140,7 @@ export async function POST(request: Request, context: RouteContext) {
         reviewer_id: reviewerId,
         status: "pending",
         round_no: nextRound,
+        due_at: dueAt.toISOString(),
       }))
     );
 
@@ -167,15 +175,19 @@ export async function POST(request: Request, context: RouteContext) {
         round_no: nextRound,
         reviewer_ids: reviewerIds,
         reviewer_count: reviewerIds.length,
+        due_at: dueAt.toISOString(),
+        due_in_days: dueInDays,
       },
     });
+
+    const dueLabel = dueAt.toLocaleDateString();
 
     await admin.from("notifications").insert(
       reviewerIds.map((reviewerId) => ({
         user_id: reviewerId,
         type: "review_assigned",
         title: "Document Assigned for Review",
-        message: `You have been assigned to review "${document.title}" (round ${nextRound}, ${reviewerIds.length} reviewer${reviewerIds.length === 1 ? "" : "s"} total).`,
+        message: `You have been assigned to review "${document.title}" (round ${nextRound}, ${reviewerIds.length} reviewer${reviewerIds.length === 1 ? "" : "s"} total). Due ${dueLabel}.`,
         document_id: documentId,
       }))
     );
@@ -183,6 +195,7 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({
       roundNo: nextRound,
       reviewerCount: reviewerIds.length,
+      dueAt: dueAt.toISOString(),
     });
   } catch (error) {
     console.error("Submit for review API error:", error);

@@ -72,6 +72,15 @@ RBAC is enforced at the page level via `lib/supabase/auth.ts` (`requireUser`, `r
 - Audit logs with filters: action / user / document / date range
 - Advanced search on /admin/documents: title + description + extracted-text (ILIKE), status/owner/date filters, "Matched in extracted text" badge
 
+### Inline PDF viewer & highlights
+- `react-pdf` (10.x, pdfjs-dist 5.x worker copied to `public/pdf.worker.min.mjs` via `scripts/copy-pdf-worker.mjs` postinstall/predev/prebuild hook) renders the latest version inline on the document detail page
+- Page nav (prev/next), zoom (50%–200%), text-layer enabled
+- Loaded via `next/dynamic({ ssr: false })` through `components/PdfViewerLoader.tsx` because pdfjs touches `window`
+- Reviewers in the current round can drag-select text → popover appears → comment textarea → POST highlight
+- Highlights stored as bounding-rect percentages (page-relative, survives zoom/resize) in `document_highlights` table
+- Right-pane sidebar lists every passage comment for the current version with click-to-jump; author can delete their own highlight
+- `canHighlight` = reviewer has an approval row in the current round (any status)
+
 ### Document detail page
 - Header with status badge
 - Revision Required banner (when rejected, owner only)
@@ -83,6 +92,22 @@ RBAC is enforced at the page level via `lib/supabase/auth.ts` (`requireUser`, `r
 - Sign Document Panel with Verify Integrity + View Certificate link
 - Approval History grouped by round (current round badged)
 - Document Timeline (replaces old Activity Log) — vertical timeline with colored dots: Created, Uploaded, Submitted (one event per round, lists all reviewers), Approved/Rejected (per reviewer, tagged with round), Signed
+
+## Review SLAs / due dates
+
+- Owner picks a deadline at submission time (preset 1/3/7/14/30 days, default 7) — server stamps `approvals.due_at` on every row in the round.
+- Dashboard + `/reviews` queue color-code each pending row: **red** (overdue), **amber** (due within 24h), **teal** (normal). Both pages sort by `due_at` ascending.
+- Document detail "Approval Progress" card shows the round deadline + per-reviewer "Overdue" pill.
+- **Lazy reminders**: when a reviewer loads `/dashboard` or `/reviews`, `lib/review-reminders.ts` fires for them — for each pending approval where `due_at < now()` AND (`last_reminded_at IS NULL` OR `last_reminded_at < now() - 24h`), a `review_overdue` notification is inserted and `last_reminded_at` is bumped. No external cron required.
+- Email reminders are deferred (would require Resend integration).
+
+Schema migration (run once):
+```sql
+ALTER TABLE approvals
+  ADD COLUMN IF NOT EXISTS due_at timestamp with time zone,
+  ADD COLUMN IF NOT EXISTS last_reminded_at timestamp with time zone;
+CREATE INDEX IF NOT EXISTS approvals_due_at_idx ON approvals (due_at) WHERE status = 'pending';
+```
 
 ## Multi-reviewer review pipeline
 
@@ -101,6 +126,33 @@ Schema migration (run once):
 ALTER TABLE approvals ADD COLUMN IF NOT EXISTS round_no integer NOT NULL DEFAULT 1;
 CREATE UNIQUE INDEX IF NOT EXISTS approvals_doc_reviewer_round_idx ON approvals (document_id, reviewer_id, round_no);
 ```
+
+## Highlights (passage comments)
+
+Schema migration (run once):
+```sql
+CREATE TABLE IF NOT EXISTS document_highlights (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id uuid NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  document_version_id uuid NOT NULL REFERENCES document_versions(id) ON DELETE CASCADE,
+  reviewer_id uuid NOT NULL REFERENCES profiles(id),
+  page_number integer NOT NULL CHECK (page_number > 0),
+  selected_text text NOT NULL,
+  comment text NOT NULL,
+  bounding_rects jsonb NOT NULL,
+  created_at timestamp with time zone DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS document_highlights_version_idx ON document_highlights (document_version_id, page_number);
+ALTER TABLE document_highlights ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated users can view highlights" ON document_highlights FOR SELECT TO authenticated USING (TRUE);
+CREATE POLICY "Reviewers can create their own highlights" ON document_highlights FOR INSERT TO authenticated WITH CHECK (auth.uid() = reviewer_id);
+CREATE POLICY "Reviewers can delete their own highlights" ON document_highlights FOR DELETE TO authenticated USING (auth.uid() = reviewer_id);
+```
+
+- Server enforces "reviewer must have approval row in current round" gate on `POST /api/documents/[id]/highlights`
+- `DELETE /api/documents/[id]/highlights/[highlightId]` allowed for highlight author or admin
+- Coexists with approval-level `comment` (overall judgment); highlights are passage-specific
+- Highlights are version-scoped — uploading a new version doesn't carry old highlights forward
 
 ## Upload pipeline
 

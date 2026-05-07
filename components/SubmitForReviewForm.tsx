@@ -25,6 +25,7 @@ export default function SubmitForReviewForm({
   const router = useRouter();
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [dueInDays, setDueInDays] = useState(7);
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -60,7 +61,7 @@ export default function SubmitForReviewForm({
     const response = await fetch(`/api/documents/${documentId}/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reviewerIds }),
+      body: JSON.stringify({ reviewerIds, dueInDays }),
     });
 
     const result = await response.json();
@@ -98,6 +99,30 @@ export default function SubmitForReviewForm({
         </p>
       ) : (
         <form onSubmit={handleSubmitForReview} className="mt-4 space-y-4">
+          <div>
+            <label className="mb-2 block text-sm font-medium text-gray-800">
+              Due in
+            </label>
+
+            <select
+              className="select-field"
+              value={dueInDays}
+              onChange={(e) => setDueInDays(Number(e.target.value))}
+            >
+              <option value={1}>1 day</option>
+              <option value={3}>3 days</option>
+              <option value={7}>7 days (default)</option>
+              <option value={14}>14 days</option>
+              <option value={30}>30 days</option>
+            </select>
+
+            <p className="muted-copy mt-1 text-xs">
+              Each reviewer&apos;s deadline. Overdue reviews are flagged red on
+              the dashboard, and the system sends a reminder notification once
+              past the deadline.
+            </p>
+          </div>
+
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-800">
               Reviewers ({selectedIds.size} selected)

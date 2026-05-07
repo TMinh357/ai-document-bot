@@ -1,9 +1,14 @@
 import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import { requireRole } from "@/lib/supabase/auth";
+import { fireOverdueReminders } from "@/lib/review-reminders";
+
+const NEAR_DUE_HOURS = 24;
 
 export default async function ReviewsPage() {
   const { supabase, user } = await requireRole(["reviewer", "admin"]);
+
+  await fireOverdueReminders(user.id);
 
   const { data: approvals } = await supabase
     .from("approvals")
@@ -12,6 +17,8 @@ export default async function ReviewsPage() {
       id,
       status,
       created_at,
+      due_at,
+      round_no,
       document:documents (
         id,
         title,
@@ -23,7 +30,7 @@ export default async function ReviewsPage() {
     )
     .eq("reviewer_id", user.id)
     .eq("status", "pending")
-    .order("created_at", { ascending: false });
+    .order("due_at", { ascending: true, nullsFirst: false });
 
   return (
     <main className="page-shell text-gray-900">
@@ -67,15 +74,59 @@ export default async function ReviewsPage() {
                   return null;
                 }
 
+                const nowMs = Date.now();
+                const dueMs = approval.due_at
+                  ? new Date(approval.due_at).getTime()
+                  : null;
+                const isOverdue = dueMs !== null && dueMs < nowMs;
+                const isDueSoon =
+                  dueMs !== null &&
+                  dueMs >= nowMs &&
+                  dueMs - nowMs <= NEAR_DUE_HOURS * 60 * 60 * 1000;
+
+                let dueLabel: string;
+                let dueClass: string;
+
+                if (dueMs === null) {
+                  dueLabel = "No deadline";
+                  dueClass = "bg-gray-100 text-gray-700";
+                } else if (isOverdue) {
+                  const days = Math.floor(
+                    (nowMs - dueMs) / (24 * 60 * 60 * 1000)
+                  );
+                  dueLabel = `Overdue by ${days === 0 ? "<1 day" : `${days} day${days === 1 ? "" : "s"}`}`;
+                  dueClass = "bg-red-100 text-red-800";
+                } else if (isDueSoon) {
+                  const hours = Math.max(
+                    1,
+                    Math.floor((dueMs - nowMs) / (60 * 60 * 1000))
+                  );
+                  dueLabel = `Due in ${hours}h`;
+                  dueClass = "bg-amber-100 text-amber-800";
+                } else {
+                  const days = Math.ceil(
+                    (dueMs - nowMs) / (24 * 60 * 60 * 1000)
+                  );
+                  dueLabel = `Due in ${days} day${days === 1 ? "" : "s"}`;
+                  dueClass = "bg-teal-50 text-teal-800";
+                }
+
                 return (
                   <div
                     key={approval.id}
-                    className="flex flex-col gap-5 px-6 py-5 md:flex-row md:items-center md:justify-between"
+                    className={`flex flex-col gap-5 px-6 py-5 md:flex-row md:items-center md:justify-between ${
+                      isOverdue ? "bg-red-50/40" : ""
+                    }`}
                   >
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        {document.title}
-                      </h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          {document.title}
+                        </h3>
+                        <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-700">
+                          Round {approval.round_no ?? 1}
+                        </span>
+                      </div>
 
                       <p className="muted-copy mt-2 text-sm leading-6">
                         {document.description || "No description provided"}
@@ -84,15 +135,29 @@ export default async function ReviewsPage() {
                       <p className="mt-2 text-xs uppercase tracking-[0.14em] text-gray-500">
                         Assigned at:{" "}
                         {new Date(approval.created_at).toLocaleString()}
+                        {approval.due_at && (
+                          <>
+                            {" · "}Deadline:{" "}
+                            {new Date(approval.due_at).toLocaleString()}
+                          </>
+                        )}
                       </p>
                     </div>
 
-                    <Link
-                      href={`/documents/${document.id}`}
-                      className="button-primary text-sm"
-                    >
-                      Review
-                    </Link>
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${dueClass}`}
+                      >
+                        {dueLabel}
+                      </span>
+
+                      <Link
+                        href={`/documents/${document.id}`}
+                        className="button-primary text-sm"
+                      >
+                        Review
+                      </Link>
+                    </div>
                   </div>
                 );
               })

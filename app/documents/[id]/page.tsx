@@ -6,6 +6,8 @@ import StatusBadge from "@/components/StatusBadge";
 import AIWorkspace from "@/components/AIWorkspace";
 import SignDocumentPanel from "@/components/SignDocumentPanel";
 import UploadNewVersionForm from "@/components/UploadNewVersionForm";
+import PdfViewerLoader from "@/components/PdfViewerLoader";
+import type { Highlight } from "@/components/InlinePdfViewer";
 import DocumentTimeline, {
   type TimelineEvent,
 } from "@/components/DocumentTimeline";
@@ -91,7 +93,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
   const { data: approvals } = await supabase
     .from("approvals")
     .select(
-      "id, reviewer_id, status, comment, round_no, created_at, reviewed_at"
+      "id, reviewer_id, status, comment, round_no, due_at, created_at, reviewed_at"
     )
     .eq("document_id", id)
     .order("round_no", { ascending: false })
@@ -140,6 +142,20 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     .eq("document_id", id)
     .order("signed_at", { ascending: false });
 
+  const { data: rawHighlights } = latestVersion
+    ? await supabase
+        .from("document_highlights")
+        .select(
+          "id, document_version_id, reviewer_id, page_number, selected_text, comment, bounding_rects, created_at"
+        )
+        .eq("document_version_id", latestVersion.id)
+        .order("created_at", { ascending: true })
+    : { data: [] };
+
+  const canHighlight = !!currentRoundApprovals.find(
+    (a) => a.reviewer_id === user.id
+  );
+
   const participantIds = Array.from(
     new Set([
       document.owner_id,
@@ -148,6 +164,9 @@ export default async function DocumentDetailPage({ params }: PageProps) {
       ...(versions || [])
         .map((v) => v.created_by)
         .filter((id): id is string => !!id),
+      ...((rawHighlights || []) as Array<{ reviewer_id: string }>).map(
+        (h) => h.reviewer_id
+      ),
     ])
   );
 
@@ -170,6 +189,33 @@ export default async function DocumentDetailPage({ params }: PageProps) {
   );
 
   const ownerName = reviewerNameMap.get(document.owner_id) || "Owner";
+
+  const highlights: Highlight[] = ((rawHighlights || []) as Array<{
+    id: string;
+    document_version_id: string;
+    reviewer_id: string;
+    page_number: number;
+    selected_text: string;
+    comment: string;
+    bounding_rects: unknown;
+    created_at: string;
+  }>).map((h) => ({
+    id: h.id,
+    document_version_id: h.document_version_id,
+    reviewer_id: h.reviewer_id,
+    reviewer_name: reviewerNameMap.get(h.reviewer_id) || h.reviewer_id,
+    page_number: h.page_number,
+    selected_text: h.selected_text,
+    comment: h.comment,
+    bounding_rects: Array.isArray(h.bounding_rects)
+      ? (h.bounding_rects as Highlight["bounding_rects"])
+      : [],
+    created_at: h.created_at,
+  }));
+
+  const latestVersionWithUrl = versionsWithUrls.find(
+    (v) => v.id === latestVersion?.id
+  );
 
   const timelineEvents: TimelineEvent[] = [];
 
@@ -440,6 +486,18 @@ export default async function DocumentDetailPage({ params }: PageProps) {
           )}
         </section>
 
+        {latestVersion && latestVersionWithUrl?.signedUrl && (
+          <PdfViewerLoader
+            documentId={document.id}
+            versionId={latestVersion.id}
+            signedUrl={latestVersionWithUrl.signedUrl}
+            externalUrl={latestVersionWithUrl.signedUrl}
+            initialHighlights={highlights}
+            canHighlight={canHighlight}
+            currentUserId={user.id}
+          />
+        )}
+
         <AIWorkspace
           key={latestVersion?.id}
           documentId={document.id}
@@ -473,22 +531,53 @@ export default async function DocumentDetailPage({ params }: PageProps) {
                   {pendingCount} pending · {approvedCount} approved ·{" "}
                   {rejectedCount} rejected
                 </p>
+                {currentRoundApprovals[0]?.due_at && (
+                  <p className="mt-1 text-sm text-gray-600">
+                    Round deadline:{" "}
+                    <span className="font-semibold text-gray-900">
+                      {new Date(
+                        currentRoundApprovals[0].due_at
+                      ).toLocaleString()}
+                    </span>
+                  </p>
+                )}
               </div>
             </div>
 
             <div className="mt-4 space-y-2">
-              {currentRoundApprovals.map((approval) => (
-                <div
-                  key={approval.id}
-                  className="flex items-center justify-between rounded-xl border border-gray-200 px-4 py-2"
-                >
-                  <p className="text-sm font-medium text-gray-900">
-                    {reviewerNameMap.get(approval.reviewer_id) ||
-                      approval.reviewer_id}
-                  </p>
-                  <StatusBadge status={approval.status} />
-                </div>
-              ))}
+              {currentRoundApprovals.map((approval) => {
+                const dueMs = approval.due_at
+                  ? new Date(approval.due_at).getTime()
+                  : null;
+                const isOverdue =
+                  approval.status === "pending" &&
+                  dueMs !== null &&
+                  dueMs < Date.now();
+
+                return (
+                  <div
+                    key={approval.id}
+                    className={`flex items-center justify-between rounded-xl border px-4 py-2 ${
+                      isOverdue
+                        ? "border-red-300 bg-red-50/50"
+                        : "border-gray-200"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-gray-900">
+                        {reviewerNameMap.get(approval.reviewer_id) ||
+                          approval.reviewer_id}
+                      </p>
+                      {isOverdue && (
+                        <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-800">
+                          Overdue
+                        </span>
+                      )}
+                    </div>
+                    <StatusBadge status={approval.status} />
+                  </div>
+                );
+              })}
             </div>
           </section>
         )}
