@@ -44,9 +44,12 @@ RBAC is enforced at the page level via `lib/supabase/auth.ts` (`requireUser`, `r
 - Owner-only Submit form, reviewer-only Approve/Reject form (when assigned and pending)
 
 ### AI Assistant
-- Extract text from latest version (pdf2json + getRawTextContent + camelCase boundary recovery)
-- Mock summary / key points / risk notes (heuristic only, NOT real LLM)
-- Mock Q&A persistence
+- **Hybrid text extraction**: `pdf-parse` reads the text layer first; if the result is < 100 chars (scanned/image-only PDF) the same buffer is uploaded via OpenAI Files API and the multimodal model performs OCR (fallback path). `audit_logs.metadata.path` records `text_layer` vs `ocr_vision`. Page cap: OCR refuses PDFs > 10 pages.
+- **Real OpenAI-powered** summary / key points / risk notes via structured-output JSON schema (model forced to return `{summary, key_points[], risk_notes[]}` — no fragile parsing)
+- **Real OpenAI-powered** Q&A grounded in extracted document text
+- Cost protections: 12k-char input truncation, 1k-char question cap, model + token usage logged into `audit_logs.metadata` per call
+- Model swap via `OPENAI_MODEL` env var (default `gpt-5.4-mini`); separate optional `OPENAI_OCR_MODEL` for the OCR path (defaults to `OPENAI_MODEL`); domain errors map to proper HTTP codes — 503 (not configured), 429 (rate limit), 402 (quota exhausted), 413 (OCR page cap exceeded)
+- Caching is implicit: detail page loads the latest `document_ai_results` row by `created_at DESC`, so the most recent summary wins; users click "Generate Summary" to refresh
 - Per-version state isolation (AIWorkspace remounts on version change via `key={latestVersion?.id}`)
 
 ### Digital signature
@@ -223,23 +226,23 @@ Swap the `sub` UUID for the user being impersonated. Each `SET LOCAL` is bounded
 
 ## Known gaps
 
-- AI summary is heuristic, not OpenAI-powered
 - Signature is just a file hash — no cryptographic proof of signer identity
-- Scanned/image-only PDFs still produce no text (no OCR step) — text-based PDFs only
-- `SUPABASE_SERVICE_ROLE_KEY` must be set in Vercel env vars (User Management page fails at render time without it)
+- OCR is capped at 10 pages per document; longer scanned PDFs return a 413 error and need to be split first
+- README is graduation-friendly but lacks screenshots and a deployed URL placeholder is still pending
 
 ## Recommended next moves (graduation impact)
 
-1. **Replace mock AI with real OpenAI calls.** `openai` is installed; `app/api/documents/[id]/ai-summary` and `ai-chat` should call GPT-4 instead of doing string heuristics.
-2. **Real cryptographic signature** via Web Crypto API (per-user keypair, sign the hash with the private key, verify with the public key).
+1. **Real cryptographic signature** via Web Crypto API (per-user keypair, sign the hash with the private key, verify with the public key).
 
 Lower-priority but valuable: multi-reviewer workflows, inline PDF viewer with `react-pdf` + annotations, email notifications via Resend, review SLAs/due dates, Supabase Realtime for live updates, Playwright E2E tests, README with architecture diagram, demo video.
 
 ## Important environment
 
-- `.env.local` must have: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
-- Vercel needs the same three env vars on Production (and Preview if used)
-- `SUPABASE_SERVICE_ROLE_KEY` must NOT be `NEXT_PUBLIC_*` — keep it server-only
+- `.env.local` must have: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, `OPENAI_MODEL`
+- Vercel needs the same five env vars on Production (and Preview if used)
+- `SUPABASE_SERVICE_ROLE_KEY` and `OPENAI_API_KEY` must NOT be `NEXT_PUBLIC_*` — keep them server-only
+- `OPENAI_MODEL` defaults to `gpt-5.4-mini` if unset — fine for dev; set explicitly in Vercel for clarity
+- Optional: `OPENAI_OCR_MODEL` overrides the model used by the OCR fallback path; defaults to whatever `OPENAI_MODEL` is. If your chat model doesn't support PDF file inputs, set this to a vision-capable model (e.g. `gpt-4o-mini`).
 
 ## Where to look for what
 

@@ -1,11 +1,13 @@
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 
 const MAX_INPUT_CHARS = 12000;
 const DEFAULT_MODEL = "gpt-5.4-mini";
+const MAX_OCR_PAGES = 10;
 
 export class AIConfigError extends Error {}
 export class AIQuotaError extends Error {}
 export class AIRateLimitError extends Error {}
+export class AIOcrPageLimitError extends Error {}
 
 function getClient() {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -194,5 +196,72 @@ export async function answerQuestion(
     };
   } catch (error) {
     rethrowAsDomainError(error);
+  }
+}
+
+export type OcrResult = {
+  text: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+};
+
+const OCR_SYSTEM_PROMPT =
+  "You are an OCR engine. Extract all text from the provided document, " +
+  "preserving paragraph breaks and basic structure. " +
+  "If text is in Vietnamese, transcribe it as-is with diacritics. " +
+  "Output only the extracted text — no commentary, no markdown, no headings of your own.";
+
+function getOcrModel() {
+  return process.env.OPENAI_OCR_MODEL || getModel();
+}
+
+export async function extractTextFromPdf(
+  buffer: Buffer,
+  pageCount: number
+): Promise<OcrResult> {
+  if (pageCount > MAX_OCR_PAGES) {
+    throw new AIOcrPageLimitError(
+      `OCR is limited to ${MAX_OCR_PAGES} pages per document. This PDF has ${pageCount}.`
+    );
+  }
+
+  const client = getClient();
+  const model = getOcrModel();
+
+  const uploaded = await client.files.create({
+    file: await toFile(buffer, "document.pdf", { type: "application/pdf" }),
+    purpose: "user_data",
+  });
+
+  try {
+    const response = await client.chat.completions.create({
+      model,
+      messages: [
+        { role: "system", content: OCR_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: [
+            { type: "file", file: { file_id: uploaded.id } },
+            { type: "text", text: "Extract all text from this PDF." },
+          ],
+        },
+      ],
+    });
+
+    const text = response.choices[0]?.message?.content?.trim() ?? "";
+
+    return {
+      text,
+      model,
+      promptTokens: response.usage?.prompt_tokens ?? 0,
+      completionTokens: response.usage?.completion_tokens ?? 0,
+    };
+  } catch (error) {
+    rethrowAsDomainError(error);
+  } finally {
+    client.files.delete(uploaded.id).catch(() => {
+      // best effort cleanup; don't surface upload-cleanup failures to caller
+    });
   }
 }

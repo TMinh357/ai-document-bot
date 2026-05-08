@@ -57,7 +57,9 @@ export default function AIWorkspace({
   const [isAsking, setIsAsking] = useState(false);
 
   async function extractText() {
-    setStatusMessage("");
+    setStatusMessage(
+      "Extracting text… (scanned PDFs run OCR and may take up to 30 seconds)"
+    );
     setIsExtracting(true);
 
     try {
@@ -74,7 +76,11 @@ export default function AIWorkspace({
       }
 
       setExtractedText(data.text || "");
-      setStatusMessage("Text extraction completed.");
+      setStatusMessage(
+        data.path === "ocr_vision"
+          ? "Text extraction completed via OCR (this PDF had no text layer)."
+          : "Text extraction completed."
+      );
     } catch (error) {
       setStatusMessage("Failed to connect to the text extraction API.");
     }
