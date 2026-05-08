@@ -1,6 +1,7 @@
 import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
+import UserBadge from "@/components/UserBadge";
 import DashboardCharts from "@/components/DashboardCharts";
 import { requireUser } from "@/lib/supabase/auth";
 import { fireOverdueReminders } from "@/lib/review-reminders";
@@ -182,6 +183,12 @@ export default async function DashboardPage() {
                 Admin Panel
               </Link>
             )}
+
+            <UserBadge
+              fullName={profile?.full_name}
+              email={user.email}
+              role={role}
+            />
 
             <NotificationBell />
 

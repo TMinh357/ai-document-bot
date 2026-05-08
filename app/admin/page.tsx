@@ -1,25 +1,11 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
+import UserBadge from "@/components/UserBadge";
+import { requireRole } from "@/lib/supabase/auth";
 
 export default async function AdminPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role !== "admin") redirect("/dashboard");
+  const { supabase, user, profile, role } = await requireRole(["admin"]);
 
   const [
     { count: userCount },
@@ -54,6 +40,11 @@ export default async function AdminPage() {
             <Link href="/dashboard" className="button-secondary">
               Dashboard
             </Link>
+            <UserBadge
+              fullName={profile?.full_name}
+              email={user.email}
+              role={role}
+            />
             <NotificationBell />
             <LogoutButton />
           </div>

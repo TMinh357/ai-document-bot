@@ -2,10 +2,11 @@ import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationPanel from "@/components/NotificationPanel";
 import NotificationBell from "@/components/NotificationBell";
+import UserBadge from "@/components/UserBadge";
 import { requireUser } from "@/lib/supabase/auth";
 
 export default async function NotificationsPage() {
-  const { supabase, user, role } = await requireUser();
+  const { supabase, user, profile, role } = await requireUser();
 
   const isAdmin = role === "admin";
   const canReview = role === "reviewer" || role === "admin";
@@ -52,6 +53,12 @@ export default async function NotificationsPage() {
                 Admin Panel
               </Link>
             )}
+
+            <UserBadge
+              fullName={profile?.full_name}
+              email={user.email}
+              role={role}
+            />
 
             <NotificationBell />
             <LogoutButton />

@@ -30,8 +30,10 @@ RBAC is enforced at the page level via `lib/supabase/auth.ts` (`requireUser`, `r
 
 ### Auth & access
 - Sign in / sign out / register flow
+- **Admin approval required for new accounts** — every new sign-up lands with `profiles.status = 'pending'`. `requireUser()` redirects non-approved users to `/account-status`, which shows a pending or rejected message and a sign-out button. Admins approve / reject from `/admin/users`; the user receives an in-app notification on the decision and a `ADMIN_CHANGE_USER_STATUS` audit log entry is recorded.
 - Per-page role gates redirect employees away from `/reviews` and `/admin/*`
 - Document detail page restricted to owner / assigned reviewer / admin
+- Header on every page shows a `<UserBadge />` chip with full name, email, and role next to the notification bell
 
 ### Documents
 - Create + upload PDF (V1) — server-validated via `/api/documents` (magic bytes `%PDF-`, max 10 MB)
@@ -223,6 +225,25 @@ SELECT id, title, owner_id FROM documents;
 ROLLBACK;
 ```
 Swap the `sub` UUID for the user being impersonated. Each `SET LOCAL` is bounded to the transaction, so `ROLLBACK` cleanly resets the session.
+
+## Account approval (admin gate on registration)
+
+Every new auth user lands as `profiles.status = 'pending'`. The `requireUser()` helper in `lib/supabase/auth.ts` checks the status after fetching the profile and redirects anything except `approved` to `/account-status`. That page reads the status itself (without going through `requireUser`, to avoid a redirect loop) and shows the pending vs rejected message with a sign-out button.
+
+Admin flow: `/admin/users` lists every user, sorts pending accounts to the top, and shows an "X pending approvals" banner. Each row has a `StatusSelector` client component with Approve / Reject buttons that hit `PATCH /api/admin/users/[id]/status` (service-role write). The route writes the new status, inserts an audit log entry (`ADMIN_CHANGE_USER_STATUS`), and posts an `account_approved` / `account_rejected` notification to the affected user so the bell + `/notifications` show it.
+
+Schema migration (run once in Supabase SQL editor):
+```sql
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'pending'
+  CHECK (status IN ('pending', 'approved', 'rejected'));
+
+-- Bootstrap: every existing account is grandfathered as approved so currently
+-- signed-in users (especially admins) are not locked out.
+UPDATE profiles SET status = 'approved' WHERE status = 'pending';
+```
+
+After the migration, the column default of `'pending'` applies to any *new* profile row created by the existing `handle_new_user` trigger, so the registration → admin approval flow takes effect automatically.
 
 ## Known gaps
 

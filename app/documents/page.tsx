@@ -1,10 +1,11 @@
 import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
+import UserBadge from "@/components/UserBadge";
 import { requireUser } from "@/lib/supabase/auth";
 
 export default async function DocumentsPage() {
-  const { supabase, user } = await requireUser();
+  const { supabase, user, profile, role } = await requireUser();
 
   const { data: documents } = await supabase
     .from("documents")
@@ -30,6 +31,12 @@ export default async function DocumentsPage() {
             <Link href="/dashboard" className="button-secondary">
               Dashboard
             </Link>
+
+            <UserBadge
+              fullName={profile?.full_name}
+              email={user.email}
+              role={role}
+            />
 
             <NotificationBell />
 

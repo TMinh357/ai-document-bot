@@ -1,13 +1,17 @@
 import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
+import UserBadge from "@/components/UserBadge";
 import { requireRole } from "@/lib/supabase/auth";
 import { fireOverdueReminders } from "@/lib/review-reminders";
 
 const NEAR_DUE_HOURS = 24;
 
 export default async function ReviewsPage() {
-  const { supabase, user } = await requireRole(["reviewer", "admin"]);
+  const { supabase, user, profile, role } = await requireRole([
+    "reviewer",
+    "admin",
+  ]);
 
   await fireOverdueReminders(user.id);
 
@@ -52,6 +56,12 @@ export default async function ReviewsPage() {
             <Link href="/dashboard" className="button-secondary">
               Dashboard
             </Link>
+
+            <UserBadge
+              fullName={profile?.full_name}
+              email={user.email}
+              role={role}
+            />
 
             <NotificationBell />
 

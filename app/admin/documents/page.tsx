@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
+import UserBadge from "@/components/UserBadge";
 import DeleteDocumentButton from "@/components/admin/DeleteDocumentButton";
+import { requireRole } from "@/lib/supabase/auth";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "bg-gray-100 text-gray-700",
@@ -34,21 +34,7 @@ function escapeIlikePattern(value: string) {
 export default async function AdminDocumentsPage({ searchParams }: PageProps) {
   const filters = await searchParams;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
-
-  const { data: callerProfile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (callerProfile?.role !== "admin") redirect("/dashboard");
+  const { supabase, user, profile, role } = await requireRole(["admin"]);
 
   const trimmedQuery = (filters.q || "").trim();
 
@@ -140,6 +126,11 @@ export default async function AdminDocumentsPage({ searchParams }: PageProps) {
             <Link href="/admin" className="button-secondary">
               Admin Panel
             </Link>
+            <UserBadge
+              fullName={profile?.full_name}
+              email={user.email}
+              role={role}
+            />
             <NotificationBell />
             <LogoutButton />
           </div>

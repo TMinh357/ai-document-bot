@@ -21,6 +21,8 @@ const TYPE_DOT: Record<string, string> = {
   review_overdue: "bg-red-500",
   document_approved: "bg-green-500",
   document_rejected: "bg-red-500",
+  account_approved: "bg-green-500",
+  account_rejected: "bg-red-500",
 };
 
 const RECENT_LIMIT = 8;

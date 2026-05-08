@@ -1,33 +1,24 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
+import UserBadge from "@/components/UserBadge";
 import RoleSelector from "@/components/admin/RoleSelector";
+import StatusSelector from "@/components/admin/StatusSelector";
+import { requireRole } from "@/lib/supabase/auth";
+
+type AccountStatus = "pending" | "approved" | "rejected";
 
 export default async function AdminUsersPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
-
-  const { data: callerProfile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (callerProfile?.role !== "admin") redirect("/dashboard");
+  const { supabase, user, profile, role } = await requireRole(["admin"]);
 
   const adminClient = createAdminClient();
 
   const [authResult, { data: profiles }] = await Promise.all([
     adminClient.auth.admin.listUsers({ perPage: 200 }),
-    supabase.from("profiles").select("id, full_name, role, created_at"),
+    supabase
+      .from("profiles")
+      .select("id, full_name, role, status, created_at"),
   ]);
 
   const authUsers = authResult.data?.users ?? [];
@@ -41,12 +32,19 @@ export default async function AdminUsersPage() {
     email: u.email ?? "—",
     full_name: profileMap.get(u.id)?.full_name ?? "—",
     role: profileMap.get(u.id)?.role ?? "employee",
+    status: (profileMap.get(u.id)?.status ?? "pending") as AccountStatus,
     created_at: profileMap.get(u.id)?.created_at ?? u.created_at,
   }));
 
-  rows.sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
+  rows.sort((a, b) => {
+    if (a.status === "pending" && b.status !== "pending") return -1;
+    if (a.status !== "pending" && b.status === "pending") return 1;
+    return (
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+  });
+
+  const pendingCount = rows.filter((r) => r.status === "pending").length;
 
   return (
     <main className="page-shell text-gray-900">
@@ -58,7 +56,17 @@ export default async function AdminUsersPage() {
               User Management
             </h1>
             <p className="muted-copy mt-2">
-              View all registered users and manage their roles.
+              View all registered users, manage their roles, and approve or
+              reject pending accounts.
+              {pendingCount > 0 && (
+                <>
+                  {" "}
+                  <span className="font-semibold text-amber-700">
+                    {pendingCount} pending approval
+                    {pendingCount === 1 ? "" : "s"}.
+                  </span>
+                </>
+              )}
             </p>
           </div>
 
@@ -66,6 +74,11 @@ export default async function AdminUsersPage() {
             <Link href="/admin" className="button-secondary">
               Admin Panel
             </Link>
+            <UserBadge
+              fullName={profile?.full_name}
+              email={user.email}
+              role={role}
+            />
             <NotificationBell />
             <LogoutButton />
           </div>
@@ -98,13 +111,20 @@ export default async function AdminUsersPage() {
                     </p>
                   </div>
 
-                  <div className="flex shrink-0 items-center gap-3">
-                    <span className="status-pill capitalize">{row.role}</span>
-                    <RoleSelector
+                  <div className="flex shrink-0 flex-col items-end gap-3">
+                    <StatusSelector
                       userId={row.id}
-                      currentRole={row.role}
+                      currentStatus={row.status}
                       isSelf={row.id === user.id}
                     />
+                    <div className="flex items-center gap-3">
+                      <span className="status-pill capitalize">{row.role}</span>
+                      <RoleSelector
+                        userId={row.id}
+                        currentRole={row.role}
+                        isSelf={row.id === user.id}
+                      />
+                    </div>
                   </div>
                 </div>
               ))

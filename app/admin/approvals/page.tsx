@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
+import UserBadge from "@/components/UserBadge";
+import { requireRole } from "@/lib/supabase/auth";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-amber-100 text-amber-700",
@@ -11,21 +11,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default async function AdminApprovalsPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
-
-  const { data: callerProfile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (callerProfile?.role !== "admin") redirect("/dashboard");
+  const { supabase, user, profile, role } = await requireRole(["admin"]);
 
   const [{ data: approvals }, { data: documents }, { data: profiles }] =
     await Promise.all([
@@ -60,6 +46,11 @@ export default async function AdminApprovalsPage() {
             <Link href="/admin" className="button-secondary">
               Admin Panel
             </Link>
+            <UserBadge
+              fullName={profile?.full_name}
+              email={user.email}
+              role={role}
+            />
             <NotificationBell />
             <LogoutButton />
           </div>

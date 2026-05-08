@@ -20,6 +20,8 @@ const TYPE_CONFIG: Record<string, { dot: string; label: string }> = {
   review_overdue: { dot: "bg-red-500", label: "Overdue" },
   document_approved: { dot: "bg-green-500", label: "Approved" },
   document_rejected: { dot: "bg-red-500", label: "Rejected" },
+  account_approved: { dot: "bg-green-500", label: "Account" },
+  account_rejected: { dot: "bg-red-500", label: "Account" },
 };
 
 export default function NotificationPanel({
