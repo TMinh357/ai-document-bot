@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  AIConfigError,
+  AIQuotaError,
+  AIRateLimitError,
+  summarizeDocument,
+} from "@/lib/openai";
 
 export const runtime = "nodejs";
 
@@ -9,81 +15,7 @@ type RouteContext = {
   }>;
 };
 
-function cleanExtractedText(text: string) {
-  return text.replace(/\s+/g, " ").trim();
-}
-
-function splitIntoSentences(text: string) {
-  return text
-    .split(/(?<=[.!?])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
-}
-
-function createMockSummary(documentText: string) {
-  const cleanedText = cleanExtractedText(documentText);
-  const sentences = splitIntoSentences(cleanedText);
-
-  const summarySentences = sentences.slice(0, 3);
-
-  const summary =
-    summarySentences.length > 0
-      ? summarySentences.join(" ")
-      : cleanedText.slice(0, 700);
-
-  const lowerText = cleanedText.toLowerCase();
-
-  const keyPoints: string[] = [];
-
-  if (lowerText.includes("objective") || lowerText.includes("objectives")) {
-    keyPoints.push("The document defines clear objectives for the system.");
-  }
-
-  if (lowerText.includes("database") || lowerText.includes("supabase")) {
-    keyPoints.push("The system includes database design and data management.");
-  }
-
-  if (lowerText.includes("approval") || lowerText.includes("review")) {
-    keyPoints.push("The workflow includes review and approval activities.");
-  }
-
-  if (lowerText.includes("role") || lowerText.includes("access")) {
-    keyPoints.push("The system considers user roles and access control.");
-  }
-
-  if (keyPoints.length === 0) {
-    keyPoints.push("The document contains project requirements and implementation details.");
-    keyPoints.push("The content can be used as input for document review.");
-    keyPoints.push("The document should be checked for completeness and clarity.");
-  }
-
-  const riskNotes: string[] = [];
-
-  if (!lowerText.includes("test")) {
-    riskNotes.push("Testing information is not clearly visible in the extracted text.");
-  }
-
-  if (!lowerText.includes("security") && !lowerText.includes("access")) {
-    riskNotes.push("Security and access control details may need further clarification.");
-  }
-
-  if (!lowerText.includes("timeline") && !lowerText.includes("schedule")) {
-    riskNotes.push("Project timeline or schedule information may be incomplete.");
-  }
-
-  if (riskNotes.length === 0) {
-    riskNotes.push("No major risk was detected from the extracted text.");
-    riskNotes.push("Reviewer should still manually verify important requirements.");
-  }
-
-  return {
-    summary,
-    keyPoints: keyPoints.map((point) => `- ${point}`).join("\n"),
-    riskNotes: riskNotes.map((note) => `- ${note}`).join("\n"),
-  };
-}
-
-export async function POST(request: Request, context: RouteContext) {
+export async function POST(_request: Request, context: RouteContext) {
   try {
     const { id } = await context.params;
     const supabase = await createClient();
@@ -124,7 +56,7 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    const result = createMockSummary(documentText);
+    const result = await summarizeDocument(documentText);
 
     const { error: insertError } = await supabase
       .from("document_ai_results")
@@ -145,11 +77,14 @@ export async function POST(request: Request, context: RouteContext) {
 
     await supabase.from("audit_logs").insert({
       user_id: user.id,
-      action: "GENERATE_MOCK_AI_SUMMARY",
+      action: "GENERATE_AI_SUMMARY",
       target_table: "documents",
       target_id: id,
       metadata: {
-        mode: "offline_mock",
+        model: result.model,
+        prompt_tokens: result.promptTokens,
+        completion_tokens: result.completionTokens,
+        truncated: result.truncated,
       },
     });
 
@@ -159,6 +94,16 @@ export async function POST(request: Request, context: RouteContext) {
       riskNotes: result.riskNotes,
     });
   } catch (error) {
+    if (error instanceof AIConfigError) {
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
+    if (error instanceof AIRateLimitError) {
+      return NextResponse.json({ error: error.message }, { status: 429 });
+    }
+    if (error instanceof AIQuotaError) {
+      return NextResponse.json({ error: error.message }, { status: 402 });
+    }
+
     console.error("AI summary API error:", error);
 
     return NextResponse.json(
