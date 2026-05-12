@@ -1,0 +1,4 @@
+# Tell GitHub Linguist to ignore vendored/generated files so language stats
+# reflect actual application code (TypeScript), not bundled third-party JS.
+public/pdf.worker.min.mjs linguist-vendored
+scripts/copy-pdf-worker.mjs linguist-vendored
