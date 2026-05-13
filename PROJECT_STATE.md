@@ -62,6 +62,7 @@ RBAC is enforced at the page level via `lib/supabase/auth.ts` (`requireUser`, `r
 ### Notifications
 - In-app notifications (review assigned, approved, rejected) shown on dashboard
 - Mark read / unread, mark all read
+- **Realtime live updates** via Supabase Realtime — the notification bell receives INSERT/UPDATE events scoped to `user_id` and updates the badge + dropdown without reload. The dashboard wraps a `<DashboardRealtime>` client component that subscribes to `notifications` / `approvals` / `documents` changes for the current user and triggers `router.refresh()` (debounced 400ms) so the three metric cards (Documents, Pending Reviews, Notifications) re-render with fresh counts.
 
 ### Dashboard
 - Metric cards (Documents, Pending Reviews, Notifications) — scoped per role
@@ -226,6 +227,32 @@ ROLLBACK;
 ```
 Swap the `sub` UUID for the user being impersonated. Each `SET LOCAL` is bounded to the transaction, so `ROLLBACK` cleanly resets the session.
 
+## Realtime live updates
+
+Supabase Realtime broadcasts row-level INSERT / UPDATE / DELETE events over websockets, gated by the same RLS policies that govern SELECT. Two client components subscribe:
+
+- **`components/NotificationBell.tsx`** — after the initial fetch, opens a channel `notifications:${user.id}` with two `postgres_changes` listeners (INSERT and UPDATE) filtered server-side by `user_id=eq.${user.id}`. On INSERT it prepends to the items array (dedup-guarded, capped at `RECENT_LIMIT`). On UPDATE it patches `is_read` in place. Optimistic mark-read writes still happen first; the realtime echo is a no-op.
+- **`components/DashboardRealtime.tsx`** — mounted at the top of `/dashboard`, returns `null`. Opens a channel `dashboard:${user.id}` with three listeners: `notifications` (filtered to the user), `approvals` (filtered to `reviewer_id`), and `documents` (filtered to `owner_id` for non-admins, unfiltered for admins). On any event it calls `router.refresh()` with a 400ms debounce so the server component re-fetches all three metric cards + charts + the "My Pending Reviews" list. Channel is removed on unmount.
+
+Realtime respects RLS — the websocket only delivers rows the user could SELECT — so the explicit `user_id` / `reviewer_id` / `owner_id` filters are an additional optimization (less noise, smaller payload), not a security control.
+
+Schema migration (run once in Supabase SQL editor — enables row replication on the publication that Realtime watches):
+```sql
+ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
+ALTER PUBLICATION supabase_realtime ADD TABLE documents;
+ALTER PUBLICATION supabase_realtime ADD TABLE approvals;
+```
+
+Verification:
+- Open `/dashboard` in two browser sessions signed in as different users.
+- In session A (admin), assign a review to user B. Session B's bell badge increments and the "Pending Reviews" metric card updates without reload.
+- Mark a notification read in one tab; the badge in another tab of the same user updates within ~1 second.
+
+If you ever need to disable realtime for a table, drop it from the publication:
+```sql
+ALTER PUBLICATION supabase_realtime DROP TABLE notifications;
+```
+
 ## Account approval (admin gate on registration)
 
 Every new auth user lands as `profiles.status = 'pending'`. The `requireUser()` helper in `lib/supabase/auth.ts` checks the status after fetching the profile and redirects anything except `approved` to `/account-status`. That page reads the status itself (without going through `requireUser`, to avoid a redirect loop) and shows the pending vs rejected message with a sign-out button.
@@ -255,7 +282,7 @@ After the migration, the column default of `'pending'` applies to any *new* prof
 
 1. **Real cryptographic signature** via Web Crypto API (per-user keypair, sign the hash with the private key, verify with the public key).
 
-Lower-priority but valuable: multi-reviewer workflows, inline PDF viewer with `react-pdf` + annotations, email notifications via Resend, review SLAs/due dates, Supabase Realtime for live updates, Playwright E2E tests, README with architecture diagram, demo video.
+Lower-priority but valuable: email notifications via Resend, Playwright E2E tests, demo video.
 
 ## Important environment
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -38,7 +38,7 @@ function formatRelative(iso: string): string {
 }
 
 export default function NotificationBell() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
 
   const [open, setOpen] = useState(false);
@@ -49,6 +49,8 @@ export default function NotificationBell() {
 
   useEffect(() => {
     let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
     (async () => {
       const {
         data: { user },
@@ -58,6 +60,7 @@ export default function NotificationBell() {
         setLoaded(true);
         return;
       }
+
       const { data } = await supabase
         .from("notifications")
         .select("id, type, title, message, document_id, is_read, created_at")
@@ -67,9 +70,50 @@ export default function NotificationBell() {
       if (cancelled) return;
       setItems((data ?? []) as Notification[]);
       setLoaded(true);
+
+      channel = supabase
+        .channel(`notifications:${user.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "notifications",
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            const next = payload.new as Notification;
+            setItems((prev) => {
+              if (prev.some((n) => n.id === next.id)) return prev;
+              return [next, ...prev].slice(0, RECENT_LIMIT);
+            });
+          }
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "notifications",
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            const updated = payload.new as Notification;
+            setItems((prev) =>
+              prev.map((n) =>
+                n.id === updated.id ? { ...n, is_read: updated.is_read } : n
+              )
+            );
+          }
+        )
+        .subscribe();
     })();
+
     return () => {
       cancelled = true;
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
     };
   }, [supabase]);
 

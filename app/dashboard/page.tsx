@@ -3,6 +3,7 @@ import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
 import UserBadge from "@/components/UserBadge";
 import DashboardCharts from "@/components/DashboardCharts";
+import DashboardRealtime from "@/components/DashboardRealtime";
 import { requireUser } from "@/lib/supabase/auth";
 import { fireOverdueReminders } from "@/lib/review-reminders";
 
@@ -154,6 +155,7 @@ export default async function DashboardPage() {
 
   return (
     <main className="page-shell text-gray-900">
+      <DashboardRealtime userId={user.id} isAdmin={isAdmin} />
       <div className="page-container">
         <div className="topbar mb-8">
           <div>
