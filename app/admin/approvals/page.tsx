@@ -2,13 +2,9 @@ import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
 import UserBadge from "@/components/UserBadge";
+import StatusBadge from "@/components/StatusBadge";
+import ActiveLink from "@/components/ActiveLink";
 import { requireRole } from "@/lib/supabase/auth";
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-700",
-  approved: "bg-green-100 text-green-700",
-  rejected: "bg-red-100 text-red-700",
-};
 
 export default async function AdminApprovalsPage() {
   const { supabase, user, profile, role } = await requireRole(["admin"]);
@@ -43,9 +39,9 @@ export default async function AdminApprovalsPage() {
           </div>
 
           <div className="topbar-nav">
-            <Link href="/admin" className="button-secondary">
+            <ActiveLink href="/admin" className="button-secondary">
               Admin Panel
-            </Link>
+            </ActiveLink>
             <UserBadge
               fullName={profile?.full_name}
               email={user.email}
@@ -108,11 +104,7 @@ export default async function AdminApprovalsPage() {
                   </div>
 
                   <div className="flex shrink-0 items-center gap-3">
-                    <span
-                      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold capitalize ${STATUS_COLORS[approval.status] ?? "bg-gray-100 text-gray-700"}`}
-                    >
-                      {approval.status}
-                    </span>
+                    <StatusBadge status={approval.status} />
                     <Link
                       href={`/documents/${approval.document_id}`}
                       className="button-secondary text-sm"

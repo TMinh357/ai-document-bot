@@ -10,7 +10,7 @@ type RouteContext = {
   }>;
 };
 
-export async function GET(request: Request, context: RouteContext) {
+export async function GET(_request: Request, context: RouteContext) {
   const { id } = await context.params;
   const supabase = await createClient();
 
@@ -60,19 +60,39 @@ export async function GET(request: Request, context: RouteContext) {
     .createSignedUrl(version.file_path, 60);
 
   if (signedUrlError || !signedUrlData?.signedUrl) {
-    return NextResponse.json(
-      { error: "Failed to create a temporary file URL." },
-      { status: 500 }
-    );
+    await supabase.from("audit_logs").insert({
+      user_id: user.id,
+      action: "VERIFY_DOCUMENT_SIGNATURE",
+      target_table: "documents",
+      target_id: id,
+      metadata: {
+        valid: false,
+        error: "file_missing",
+        signed_hash: signature.signature_hash,
+        signature_id: signature.id,
+      },
+    });
+    return NextResponse.json({
+      valid: false,
+      fileMissing: true,
+      currentHash: null,
+      signedHash: signature.signature_hash,
+      signedAt: signature.signed_at,
+      algorithm: "SHA-256",
+    });
   }
 
   const fileResponse = await fetch(signedUrlData.signedUrl);
 
   if (!fileResponse.ok) {
-    return NextResponse.json(
-      { error: "Failed to download the document file." },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      valid: false,
+      fileMissing: true,
+      currentHash: null,
+      signedHash: signature.signature_hash,
+      signedAt: signature.signed_at,
+      algorithm: "SHA-256",
+    });
   }
 
   const arrayBuffer = await fileResponse.arrayBuffer();

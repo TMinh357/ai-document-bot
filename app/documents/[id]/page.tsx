@@ -458,7 +458,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
                         href={version.signedUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="rounded-xl bg-black px-4 py-2 text-center text-sm font-medium text-white hover:bg-gray-800"
+                        className="button-secondary text-sm"
                       >
                         View PDF
                       </a>

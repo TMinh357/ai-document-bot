@@ -26,6 +26,7 @@ export default function SubmitForReviewForm({
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [dueInDays, setDueInDays] = useState(7);
+  const [filterText, setFilterText] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -129,28 +130,57 @@ export default function SubmitForReviewForm({
             </label>
 
             <div className="space-y-2 rounded-2xl border border-gray-200 p-3">
-              {reviewers.map((reviewer) => {
-                const checked = selectedIds.has(reviewer.id);
-                return (
-                  <label
-                    key={reviewer.id}
-                    className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-gray-50"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleReviewer(reviewer.id)}
-                      className="h-4 w-4"
-                    />
-                    <span className="text-sm text-gray-900">
-                      {reviewer.full_name || reviewer.id}{" "}
-                      <span className="text-xs text-gray-500">
-                        ({reviewer.role})
+              {reviewers.length > 4 && (
+                <input
+                  type="text"
+                  value={filterText}
+                  onChange={(e) => setFilterText(e.target.value)}
+                  placeholder="Search reviewers by name or role…"
+                  className="mb-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
+                />
+              )}
+
+              {(() => {
+                const q = filterText.trim().toLowerCase();
+                const filtered = q
+                  ? reviewers.filter(
+                      (r) =>
+                        (r.full_name ?? "").toLowerCase().includes(q) ||
+                        r.role.toLowerCase().includes(q)
+                    )
+                  : reviewers;
+
+                if (filtered.length === 0) {
+                  return (
+                    <p className="px-3 py-2 text-sm text-gray-500">
+                      No reviewers match &quot;{filterText}&quot;.
+                    </p>
+                  );
+                }
+
+                return filtered.map((reviewer) => {
+                  const checked = selectedIds.has(reviewer.id);
+                  return (
+                    <label
+                      key={reviewer.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-gray-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleReviewer(reviewer.id)}
+                        className="h-4 w-4"
+                      />
+                      <span className="text-sm text-gray-900">
+                        {reviewer.full_name || reviewer.id}{" "}
+                        <span className="text-xs text-gray-500">
+                          ({reviewer.role})
+                        </span>
                       </span>
-                    </span>
-                  </label>
-                );
-              })}
+                    </label>
+                  );
+                });
+              })()}
             </div>
           </div>
 

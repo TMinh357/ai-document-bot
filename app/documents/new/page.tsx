@@ -122,6 +122,7 @@ export default function NewDocumentPage() {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Enter document title"
+                autoFocus
                 required
               />
             </div>

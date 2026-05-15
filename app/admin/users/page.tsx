@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
 import UserBadge from "@/components/UserBadge";
+import ActiveLink from "@/components/ActiveLink";
 import RoleSelector from "@/components/admin/RoleSelector";
 import StatusSelector from "@/components/admin/StatusSelector";
 import { requireRole } from "@/lib/supabase/auth";
@@ -71,9 +71,9 @@ export default async function AdminUsersPage() {
           </div>
 
           <div className="topbar-nav">
-            <Link href="/admin" className="button-secondary">
+            <ActiveLink href="/admin" className="button-secondary">
               Admin Panel
-            </Link>
+            </ActiveLink>
             <UserBadge
               fullName={profile?.full_name}
               email={user.email}

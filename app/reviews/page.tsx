@@ -2,6 +2,7 @@ import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
 import UserBadge from "@/components/UserBadge";
+import ActiveLink from "@/components/ActiveLink";
 import { requireRole } from "@/lib/supabase/auth";
 import { fireOverdueReminders } from "@/lib/review-reminders";
 
@@ -53,9 +54,9 @@ export default async function ReviewsPage() {
           </div>
 
           <div className="topbar-nav">
-            <Link href="/dashboard" className="button-secondary">
+            <ActiveLink href="/dashboard" className="button-secondary">
               Dashboard
-            </Link>
+            </ActiveLink>
 
             <UserBadge
               fullName={profile?.full_name}

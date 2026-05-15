@@ -3,15 +3,9 @@ import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
 import UserBadge from "@/components/UserBadge";
 import DeleteDocumentButton from "@/components/admin/DeleteDocumentButton";
+import StatusBadge from "@/components/StatusBadge";
+import ActiveLink from "@/components/ActiveLink";
 import { requireRole } from "@/lib/supabase/auth";
-
-const STATUS_COLORS: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-700",
-  pending: "bg-amber-100 text-amber-700",
-  approved: "bg-green-100 text-green-700",
-  rejected: "bg-red-100 text-red-700",
-  signed: "bg-teal-100 text-teal-700",
-};
 
 const STATUS_OPTIONS = ["draft", "pending", "approved", "rejected", "signed"];
 
@@ -123,9 +117,9 @@ export default async function AdminDocumentsPage({ searchParams }: PageProps) {
           </div>
 
           <div className="topbar-nav">
-            <Link href="/admin" className="button-secondary">
+            <ActiveLink href="/admin" className="button-secondary">
               Admin Panel
-            </Link>
+            </ActiveLink>
             <UserBadge
               fullName={profile?.full_name}
               email={user.email}
@@ -293,11 +287,7 @@ export default async function AdminDocumentsPage({ searchParams }: PageProps) {
                     </div>
 
                     <div className="flex shrink-0 items-center gap-3">
-                      <span
-                        className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold capitalize ${STATUS_COLORS[doc.status] ?? "bg-gray-100 text-gray-700"}`}
-                      >
-                        {doc.status}
-                      </span>
+                      <StatusBadge status={doc.status} />
                       <Link
                         href={`/documents/${doc.id}`}
                         className="button-secondary text-sm"

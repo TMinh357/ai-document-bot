@@ -12,7 +12,8 @@ type Signature = {
 
 type VerifyResult = {
   valid: boolean;
-  currentHash: string;
+  fileMissing?: boolean;
+  currentHash: string | null;
   signedHash: string;
   signedAt: string;
 };
@@ -169,7 +170,9 @@ export default function SignDocumentPanel({
               >
                 {verifyResult.valid
                   ? "File is valid"
-                  : "File has been modified"}
+                  : verifyResult.fileMissing
+                    ? "File has been deleted or moved"
+                    : "File has been modified"}
               </p>
               <p
                 className={`text-sm ${
@@ -178,7 +181,9 @@ export default function SignDocumentPanel({
               >
                 {verifyResult.valid
                   ? "The current file matches the saved signature hash."
-                  : "The current file does not match the saved signature hash."}
+                  : verifyResult.fileMissing
+                    ? "The signed file no longer exists at its original storage path. It may have been deleted or replaced."
+                    : "The current file does not match the saved signature hash."}
               </p>
             </div>
           </div>
@@ -197,20 +202,22 @@ export default function SignDocumentPanel({
               </p>
             </div>
 
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-600">
-                Current File Hash
-              </p>
-              <p
-                className={`mt-1 break-all rounded-xl bg-white p-3 font-mono text-xs ring-1 ${
-                  verifyResult.valid
-                    ? "text-gray-700 ring-gray-200"
-                    : "text-red-700 ring-red-200"
-                }`}
-              >
-                {verifyResult.currentHash}
-              </p>
-            </div>
+            {!verifyResult.fileMissing && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-600">
+                  Current File Hash
+                </p>
+                <p
+                  className={`mt-1 break-all rounded-xl bg-white p-3 font-mono text-xs ring-1 ${
+                    verifyResult.valid
+                      ? "text-gray-700 ring-gray-200"
+                      : "text-red-700 ring-red-200"
+                  }`}
+                >
+                  {verifyResult.currentHash}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}

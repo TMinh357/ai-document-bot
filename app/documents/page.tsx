@@ -2,6 +2,9 @@ import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
 import UserBadge from "@/components/UserBadge";
+import ActiveLink from "@/components/ActiveLink";
+import StatusBadge from "@/components/StatusBadge";
+import EmptyState from "@/components/EmptyState";
 import { requireUser } from "@/lib/supabase/auth";
 
 export default async function DocumentsPage() {
@@ -28,9 +31,9 @@ export default async function DocumentsPage() {
           </div>
 
           <div className="topbar-nav">
-            <Link href="/dashboard" className="button-secondary">
+            <ActiveLink href="/dashboard" className="button-secondary">
               Dashboard
-            </Link>
+            </ActiveLink>
 
             <UserBadge
               fullName={profile?.full_name}
@@ -78,9 +81,7 @@ export default async function DocumentsPage() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-3">
-                    <span className="status-pill">
-                      {document.status}
-                    </span>
+                    <StatusBadge status={document.status} />
 
                     <Link
                       href={`/documents/${document.id}`}
@@ -92,8 +93,13 @@ export default async function DocumentsPage() {
                 </div>
               ))
             ) : (
-              <div className="px-6 py-10 text-center text-gray-600">
-                No documents have been created yet.
+              <div className="px-6 py-10">
+                <EmptyState
+                  title="No documents yet"
+                  description="Create your first document, upload a PDF, and submit it for review."
+                  actionLabel="Create New Document"
+                  actionHref="/documents/new"
+                />
               </div>
             )}
           </div>

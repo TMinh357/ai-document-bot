@@ -2,6 +2,7 @@ import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
 import UserBadge from "@/components/UserBadge";
+import ActiveLink from "@/components/ActiveLink";
 import DashboardCharts from "@/components/DashboardCharts";
 import DashboardRealtime from "@/components/DashboardRealtime";
 import { requireUser } from "@/lib/supabase/auth";
@@ -170,20 +171,20 @@ export default async function DashboardPage() {
           </div>
 
           <div className="topbar-nav">
-            <Link href="/documents" className="button-secondary">
+            <ActiveLink href="/documents" className="button-secondary">
               Documents
-            </Link>
+            </ActiveLink>
 
             {canReview && (
-              <Link href="/reviews" className="button-secondary">
+              <ActiveLink href="/reviews" className="button-secondary">
                 Reviews
-              </Link>
+              </ActiveLink>
             )}
 
             {isAdmin && (
-              <Link href="/admin" className="button-primary">
+              <ActiveLink href="/admin" className="button-primary">
                 Admin Panel
-              </Link>
+              </ActiveLink>
             )}
 
             <UserBadge

@@ -52,13 +52,22 @@ export default function AIWorkspace({
 
   const [question, setQuestion] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+  const [statusTone, setStatusTone] = useState<"info" | "success" | "error">(
+    "info"
+  );
   const [isExtracting, setIsExtracting] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isAsking, setIsAsking] = useState(false);
 
+  function setStatus(message: string, tone: "info" | "success" | "error") {
+    setStatusMessage(message);
+    setStatusTone(tone);
+  }
+
   async function extractText() {
-    setStatusMessage(
-      "Extracting text… (scanned PDFs run OCR and may take up to 30 seconds)"
+    setStatus(
+      "Extracting text… (scanned PDFs run OCR and may take up to 30 seconds)",
+      "info"
     );
     setIsExtracting(true);
 
@@ -70,26 +79,27 @@ export default function AIWorkspace({
       const data = await readApiResponse(response);
 
       if (!response.ok || data.error) {
-        setStatusMessage(data.error || "Failed to extract text.");
+        setStatus(data.error || "Failed to extract text.", "error");
         setIsExtracting(false);
         return;
       }
 
       setExtractedText(data.text || "");
-      setStatusMessage(
+      setStatus(
         data.path === "ocr_vision"
           ? "Text extraction completed via OCR (this PDF had no text layer)."
-          : "Text extraction completed."
+          : "Text extraction completed.",
+        "success"
       );
     } catch (error) {
-      setStatusMessage("Failed to connect to the text extraction API.");
+      setStatus("Failed to connect to the text extraction API.", "error");
     }
 
     setIsExtracting(false);
   }
 
   async function generateSummary() {
-    setStatusMessage("");
+    setStatus("Generating AI summary…", "info");
     setIsSummarizing(true);
 
     try {
@@ -100,7 +110,7 @@ export default function AIWorkspace({
       const data = await readApiResponse(response);
 
       if (!response.ok || data.error) {
-        setStatusMessage(data.error || "Failed to generate summary.");
+        setStatus(data.error || "Failed to generate summary.", "error");
         setIsSummarizing(false);
         return;
       }
@@ -108,9 +118,9 @@ export default function AIWorkspace({
       setSummary(data.summary || "");
       setKeyPoints(data.keyPoints || "");
       setRiskNotes(data.riskNotes || "");
-      setStatusMessage("AI summary generated.");
+      setStatus("AI summary generated.", "success");
     } catch (error) {
-      setStatusMessage("Failed to connect to the AI summary API.");
+      setStatus("Failed to connect to the AI summary API.", "error");
     }
 
     setIsSummarizing(false);
@@ -142,7 +152,7 @@ export default function AIWorkspace({
       const data = await readApiResponse(response);
 
       if (!response.ok || data.error) {
-        setStatusMessage(data.error || "Failed to answer the question.");
+        setStatus(data.error || "Failed to answer the question.", "error");
         setIsAsking(false);
         return;
       }
@@ -159,7 +169,10 @@ export default function AIWorkspace({
 
       setQuestion("");
     } catch (error) {
-      setStatusMessage("Failed to connect to the AI question answering API.");
+      setStatus(
+        "Failed to connect to the AI question answering API.",
+        "error"
+      );
     }
 
     setIsAsking(false);
@@ -203,56 +216,78 @@ export default function AIWorkspace({
       </div>
 
       {statusMessage && (
-        <p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-gray-700">
+        <p
+          role="status"
+          aria-live="polite"
+          className={`mt-4 rounded-xl border p-3 text-sm ${
+            statusTone === "success"
+              ? "border-green-200 bg-green-50 text-green-800"
+              : statusTone === "error"
+                ? "border-red-200 bg-red-50 text-red-800"
+                : "border-slate-200 bg-slate-50 text-gray-700"
+          }`}
+        >
           {statusMessage}
         </p>
       )}
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-3">
-        <div className="rounded-2xl border border-gray-200 p-5 lg:col-span-2">
-          <h3 className="font-semibold text-gray-900">AI Summary</h3>
+      {summary || keyPoints || riskNotes ? (
+        <div className="mt-6 grid gap-5 lg:grid-cols-3">
+          <div className="rounded-2xl border border-gray-200 p-5 lg:col-span-2">
+            <h3 className="font-semibold text-gray-900">AI Summary</h3>
 
-          {summary ? (
-            <p className="mt-3 whitespace-pre-line text-sm leading-7 text-gray-700">
-              {summary}
-            </p>
-          ) : (
-            <p className="mt-3 text-sm text-gray-500">
-              No summary has been generated yet.
-            </p>
-          )}
-        </div>
-
-        <div className="space-y-5">
-          <div className="rounded-2xl border border-gray-200 p-5">
-            <h3 className="font-semibold text-gray-900">Key Points</h3>
-
-            {keyPoints ? (
+            {summary ? (
               <p className="mt-3 whitespace-pre-line text-sm leading-7 text-gray-700">
-                {keyPoints}
+                {summary}
               </p>
             ) : (
               <p className="mt-3 text-sm text-gray-500">
-                No key points available.
+                Summary not available for this run.
               </p>
             )}
           </div>
 
-          <div className="rounded-2xl border border-gray-200 p-5">
-            <h3 className="font-semibold text-gray-900">Risk Notes</h3>
+          <div className="space-y-5">
+            <div className="rounded-2xl border border-gray-200 p-5">
+              <h3 className="font-semibold text-gray-900">Key Points</h3>
 
-            {riskNotes ? (
-              <p className="mt-3 whitespace-pre-line text-sm leading-7 text-gray-700">
-                {riskNotes}
-              </p>
-            ) : (
-              <p className="mt-3 text-sm text-gray-500">
-                No risk notes available.
-              </p>
-            )}
+              {keyPoints ? (
+                <p className="mt-3 whitespace-pre-line text-sm leading-7 text-gray-700">
+                  {keyPoints}
+                </p>
+              ) : (
+                <p className="mt-3 text-sm text-gray-500">
+                  Key points not available for this run.
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 p-5">
+              <h3 className="font-semibold text-gray-900">Risk Notes</h3>
+
+              {riskNotes ? (
+                <p className="mt-3 whitespace-pre-line text-sm leading-7 text-gray-700">
+                  {riskNotes}
+                </p>
+              ) : (
+                <p className="mt-3 text-sm text-gray-500">
+                  Risk notes not available for this run.
+                </p>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="mt-6 rounded-2xl border border-dashed border-gray-300 bg-slate-50 p-6 text-center">
+          <p className="text-sm font-semibold text-gray-700">
+            No AI analysis yet
+          </p>
+          <p className="mx-auto mt-1 max-w-md text-sm text-gray-500">
+            Click <span className="font-medium">Generate Summary</span> above to
+            produce an overview, key points, and risk notes for this document.
+          </p>
+        </div>
+      )}
 
       <div className="mt-6 rounded-2xl border border-gray-200 p-5">
         <h3 className="font-semibold text-gray-900">Ask About This Document</h3>
@@ -271,7 +306,7 @@ export default function AIWorkspace({
           <button
             type="submit"
             disabled={isAsking}
-            className="rounded-xl bg-black px-5 py-3 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-60"
+            className="button-primary disabled:opacity-60"
           >
             {isAsking ? "Asking..." : "Ask AI"}
           </button>
