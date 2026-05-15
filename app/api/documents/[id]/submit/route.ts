@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendReviewAssignedEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -190,6 +191,19 @@ export async function POST(request: Request, context: RouteContext) {
         message: `You have been assigned to review "${document.title}" (round ${nextRound}, ${reviewerIds.length} reviewer${reviewerIds.length === 1 ? "" : "s"} total). Due ${dueLabel}.`,
         document_id: documentId,
       }))
+    );
+
+    await Promise.allSettled(
+      reviewerIds.map((reviewerId) =>
+        sendReviewAssignedEmail({
+          reviewerId,
+          documentId,
+          documentTitle: document.title,
+          roundNo: nextRound,
+          reviewerCount: reviewerIds.length,
+          dueAt: dueAt.toISOString(),
+        })
+      )
     );
 
     return NextResponse.json({

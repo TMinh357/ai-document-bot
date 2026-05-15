@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  sendDocumentApprovedEmail,
+  sendDocumentRejectedEmail,
+  sendReviewProgressEmail,
+} from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -201,6 +206,12 @@ export async function POST(request: Request, context: RouteContext) {
         message: `Your document "${document.title}" was rejected${comment ? `: ${comment}` : "."}`,
         document_id: document.id,
       });
+      await sendDocumentRejectedEmail({
+        ownerId: document.owner_id,
+        documentId: document.id,
+        documentTitle: document.title,
+        comment: comment || null,
+      });
     } else if (nextDocStatus === "approved") {
       await admin.from("notifications").insert({
         user_id: document.owner_id,
@@ -209,6 +220,12 @@ export async function POST(request: Request, context: RouteContext) {
         message: `Your document "${document.title}" has been approved by all ${totalCount} reviewer${totalCount === 1 ? "" : "s"}.`,
         document_id: document.id,
       });
+      await sendDocumentApprovedEmail({
+        ownerId: document.owner_id,
+        documentId: document.id,
+        documentTitle: document.title,
+        totalReviewers: totalCount,
+      });
     } else {
       await admin.from("notifications").insert({
         user_id: document.owner_id,
@@ -216,6 +233,13 @@ export async function POST(request: Request, context: RouteContext) {
         title: "Review Progress",
         message: `"${document.title}" — ${approvedCount} of ${totalCount} reviewers have approved.`,
         document_id: document.id,
+      });
+      await sendReviewProgressEmail({
+        ownerId: document.owner_id,
+        documentId: document.id,
+        documentTitle: document.title,
+        approvedCount,
+        totalCount,
       });
     }
 

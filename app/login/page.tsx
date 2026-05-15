@@ -35,7 +35,7 @@ export default function LoginPage() {
     }
 
     if (mode === "register") {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -48,6 +48,18 @@ export default function LoginPage() {
       if (error) {
         setMessage(error.message);
         return;
+      }
+
+      const newUserId = data.user?.id;
+      if (newUserId) {
+        // Fire-and-forget — admins get notified but a failure here must not
+        // block the registration UX. The DB trigger creates the profile row
+        // synchronously with the auth.users insert, so the route can read it.
+        fetch("/api/auth/register-notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: newUserId }),
+        }).catch(() => {});
       }
 
       setMessage("Registration successful. Please sign in.");

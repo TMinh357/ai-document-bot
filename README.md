@@ -4,8 +4,8 @@ A document-review SaaS where employees submit PDFs, reviewers approve or reject 
 
 > **Graduation project** — Vietnamese university, 2026.
 
-- **Live demo**: <!-- TODO: paste your Vercel URL here, e.g. https://ai-document-bot.vercel.app --> _coming soon_
-- **Source**: <!-- TODO: paste your GitHub repo URL here, e.g. https://github.com/<you>/ai-document-bot -->
+- **Live demo**: <!-- TODO:https://ai-document-bot.vercel.app/
+- **Source**: <!-- TODO: https://github.com/TMinh357/ai-document-bot
 
 ---
 

@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendReviewOverdueEmail } from "@/lib/email";
 
 const REMINDER_THROTTLE_HOURS = 24;
 
@@ -57,6 +58,13 @@ export async function fireOverdueReminders(reviewerId: string): Promise<void> {
       title: "Review Overdue",
       message: `Your review of "${title}" is overdue by ${overdueDays} day${overdueDays === 1 ? "" : "s"}. Please complete it as soon as possible.`,
       document_id: row.document_id,
+    });
+
+    await sendReviewOverdueEmail({
+      reviewerId,
+      documentId: row.document_id,
+      documentTitle: title,
+      overdueDays,
     });
 
     await admin

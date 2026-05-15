@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  sendAccountApprovedEmail,
+  sendAccountRejectedEmail,
+} from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -78,6 +82,12 @@ export async function PATCH(request: Request, context: RouteContext) {
           ? "An administrator approved your account. Refresh the page to start using the system."
           : "An administrator rejected your account. Please contact your administrator if you believe this is a mistake.",
     });
+
+    if (status === "approved") {
+      await sendAccountApprovedEmail({ userId: id });
+    } else {
+      await sendAccountRejectedEmail({ userId: id });
+    }
   }
 
   return NextResponse.json({ success: true });

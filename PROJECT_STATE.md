@@ -15,7 +15,7 @@ Graduation project: a document-review SaaS where employees submit PDF documents,
 - Supabase (Auth, Postgres + RLS, Storage)
 - TypeScript strict
 - `pdf-parse` (1.1.1) for PDF text extraction — wraps `pdfjs-dist`, outputs proper word spacing without camelCase recovery hacks
-- `openai` package installed but currently unused for real LLM calls
+- `openai` package — powers AI summary, key points, risk notes, Q&A (structured-output JSON schema) and the OCR fallback path via the Files API
 - Deployed on Vercel
 
 ## Roles
@@ -63,6 +63,8 @@ RBAC is enforced at the page level via `lib/supabase/auth.ts` (`requireUser`, `r
 - In-app notifications (review assigned, approved, rejected) shown on dashboard
 - Mark read / unread, mark all read
 - **Realtime live updates** via Supabase Realtime — the notification bell receives INSERT/UPDATE events scoped to `user_id` and updates the badge + dropdown without reload. The dashboard wraps a `<DashboardRealtime>` client component that subscribes to `notifications` / `approvals` / `documents` changes for the current user and triggers `router.refresh()` (debounced 400ms) so the three metric cards (Documents, Pending Reviews, Notifications) re-render with fresh counts.
+- **Email notifications via Brevo** — every in-app notification is mirrored to email. `lib/email.ts` calls Brevo's REST API directly (no SDK) and exposes one sender per notification type: `sendReviewAssignedEmail`, `sendDocumentApprovedEmail`, `sendDocumentRejectedEmail`, `sendReviewProgressEmail`, `sendReviewOverdueEmail`, `sendAccountApprovedEmail`, `sendAccountRejectedEmail`, `sendAdminNewUserEmail`. Each is called immediately after the matching `notifications` insert in `/api/documents/[id]/submit`, `/api/approvals/[approvalId]/decide`, `/api/admin/users/[id]/status`, `/api/auth/register-notify`, and `lib/review-reminders.ts`. Emails are best-effort: a missing `BREVO_API_KEY` / `BREVO_FROM_EMAIL` becomes a `console.warn` (dev) or silent skip (prod), and any HTTP/fetch error is logged but never thrown — the in-app notification row is the source of truth. Recipient addresses are resolved via `auth.admin.getUserById()`. Deep-links use `NEXT_PUBLIC_APP_URL`. Brevo is preferred over Resend because its free tier verifies a single sender email (no domain required) and allows sending to any recipient address.
+- **Admin notified of new registrations** — after `supabase.auth.signUp()` resolves, the client fires a fire-and-forget `POST /api/auth/register-notify` with the new user's id. The server-side route validates the profile was created within the last 5 minutes and is `status='pending'` (anti-abuse window), then fans out a `new_user_registered` in-app notification + email to every approved admin so they can review the pending account in `/admin/users`. The Supabase `handle_new_user` trigger that creates the profile row is synchronous with the `auth.users` insert, so by the time the client makes the follow-up call the row already exists.
 
 ### Dashboard
 - Metric cards (Documents, Pending Reviews, Notifications) — scoped per role
@@ -291,6 +293,7 @@ Lower-priority but valuable: email notifications via Resend, Playwright E2E test
 - `SUPABASE_SERVICE_ROLE_KEY` and `OPENAI_API_KEY` must NOT be `NEXT_PUBLIC_*` — keep them server-only
 - `OPENAI_MODEL` defaults to `gpt-5.4-mini` if unset — fine for dev; set explicitly in Vercel for clarity
 - Optional: `OPENAI_OCR_MODEL` overrides the model used by the OCR fallback path; defaults to whatever `OPENAI_MODEL` is. If your chat model doesn't support PDF file inputs, set this to a vision-capable model (e.g. `gpt-4o-mini`).
+- **Email (optional but recommended):** `BREVO_API_KEY` (from brevo.com → Settings → SMTP & API) enables outbound email; without it the app still works and sends are skipped with a dev warning. `BREVO_FROM_EMAIL` is the verified sender address (must be verified in Brevo dashboard → Senders before any send succeeds). `BREVO_FROM_NAME` is the display name (defaults to "AI Document Review"). `NEXT_PUBLIC_APP_URL` is the base URL used to build deep-links in emails (defaults to `http://localhost:3000`); set it to your Vercel URL in production.
 
 ## Where to look for what
 
