@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -161,12 +162,46 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     if (nextDocStatus !== "pending") {
+      // When unanimously approved, snapshot the file hash so the sign route
+      // can detect any tampering that happens before the owner clicks Sign.
+      let approvedHash: string | null = null;
+      if (nextDocStatus === "approved") {
+        try {
+          const { data: version } = await admin
+            .from("document_versions")
+            .select("file_path")
+            .eq("document_id", document.id)
+            .order("version_no", { ascending: false })
+            .limit(1)
+            .single();
+
+          if (version?.file_path) {
+            const { data: signedUrlData } = await admin.storage
+              .from("documents")
+              .createSignedUrl(version.file_path, 60);
+
+            if (signedUrlData?.signedUrl) {
+              const fileResp = await fetch(signedUrlData.signedUrl);
+              if (fileResp.ok) {
+                const buf = Buffer.from(await fileResp.arrayBuffer());
+                approvedHash = createHash("sha256").update(buf).digest("hex");
+              }
+            }
+          }
+        } catch {
+          // Non-fatal: approval proceeds; sign route will still verify at sign time
+        }
+      }
+
+      const docUpdate: Record<string, unknown> = {
+        status: nextDocStatus,
+        updated_at: new Date().toISOString(),
+      };
+      if (approvedHash) docUpdate.approved_hash = approvedHash;
+
       const { error: docUpdateError } = await admin
         .from("documents")
-        .update({
-          status: nextDocStatus,
-          updated_at: new Date().toISOString(),
-        })
+        .update(docUpdate)
         .eq("id", document.id);
 
       if (docUpdateError) {

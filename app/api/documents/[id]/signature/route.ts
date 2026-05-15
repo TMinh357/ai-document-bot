@@ -27,7 +27,7 @@ export async function POST(request: Request, context: RouteContext) {
 
   const { data: document } = await supabase
     .from("documents")
-    .select("id, status, owner_id")
+    .select("id, status, owner_id, approved_hash")
     .eq("id", id)
     .single();
 
@@ -84,6 +84,17 @@ export async function POST(request: Request, context: RouteContext) {
   const buffer = Buffer.from(arrayBuffer);
 
   const signatureHash = createHash("sha256").update(buffer).digest("hex");
+
+  // Reject signing if the file was tampered with after approval
+  if (document.approved_hash && signatureHash !== document.approved_hash) {
+    return NextResponse.json(
+      {
+        error:
+          "Signing rejected: the file was modified after approval. The document must be re-submitted for review.",
+      },
+      { status: 409 }
+    );
+  }
 
   const { error: signatureError } = await supabase
     .from("document_signatures")
