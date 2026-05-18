@@ -51,31 +51,7 @@ export default async function AdminPage() {
           </div>
         </div>
 
-        <section className="hero-panel rounded-[2rem] p-8 md:p-10">
-          <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr] lg:items-end">
-            <div>
-              <p className="eyebrow">System Overview</p>
-              <h2 className="mt-4 max-w-2xl text-4xl font-semibold tracking-tight text-gray-900">
-                Manage users, documents, approvals, and activity across the
-                entire system.
-              </h2>
-            </div>
-
-            <div className="rounded-[1.75rem] border border-white/50 bg-white/60 p-6">
-              <p className="text-sm font-medium uppercase tracking-[0.18em] text-teal-800">
-                Signed in as
-              </p>
-              <p className="mt-3 text-2xl font-semibold text-gray-900">
-                {profile?.full_name || user.email}
-              </p>
-              <p className="muted-copy mt-2 text-sm capitalize">
-                Role: {profile?.role}
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <div className="mt-6 grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-4">
           <div className="metric-card rounded-[1.75rem] p-6">
             <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
               Users

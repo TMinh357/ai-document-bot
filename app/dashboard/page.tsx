@@ -114,10 +114,9 @@ export default async function DashboardPage() {
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const label = d.toLocaleDateString("en-US", {
-      month: "short",
-      year: "2-digit",
-    });
+    const month = d.toLocaleDateString("en-US", { month: "short" });
+    const yearShort = d.getFullYear().toString().slice(-2);
+    const label = `${month} '${yearShort}`;
     monthlyCounts.push({ key, label, count: 0 });
   }
 
@@ -164,10 +163,6 @@ export default async function DashboardPage() {
             <h1 className="mt-3 text-4xl font-semibold tracking-tight text-gray-900">
               Dashboard
             </h1>
-
-            <p className="muted-copy mt-2">
-              Welcome, {profile?.full_name || user.email}
-            </p>
           </div>
 
           <div className="topbar-nav">
@@ -199,37 +194,8 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        <section className="hero-panel rounded-[2rem] p-8 md:p-10">
-          <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr] lg:items-end">
-            <div>
-              <p className="eyebrow">Review Workspace</p>
-              <h2 className="mt-4 max-w-2xl text-4xl font-semibold tracking-tight text-gray-900">
-                Keep submissions, reviews, and decisions moving without losing
-                context.
-              </h2>
-
-              <p className="muted-copy mt-5 max-w-2xl text-lg leading-8">
-                Your review pipeline is organized into clear action areas so
-                pending work stands out immediately.
-              </p>
-            </div>
-
-            <div className="rounded-[1.75rem] border border-white/50 bg-white/60 p-6">
-              <p className="text-sm font-medium uppercase tracking-[0.18em] text-teal-800">
-                Signed in as
-              </p>
-              <p className="mt-3 text-2xl font-semibold text-gray-900">
-                {profile?.full_name || user.email}
-              </p>
-              <p className="muted-copy mt-2 text-sm">
-                Role: {role}
-              </p>
-            </div>
-          </div>
-        </section>
-
         <div
-          className={`mt-6 grid gap-4 ${canReview ? "md:grid-cols-3" : "md:grid-cols-2"}`}
+          className={`grid gap-4 ${canReview ? "md:grid-cols-3" : "md:grid-cols-2"}`}
         >
           <div className="metric-card rounded-[1.75rem] p-6">
             <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">

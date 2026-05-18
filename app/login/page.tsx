@@ -16,7 +16,7 @@ export default function LoginPage() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"error" | "success">("error");
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setMessage("");
 
@@ -72,47 +72,19 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="page-shell flex items-center">
-      <div className="page-container">
-        <div className="grid items-center gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-          <section className="hero-panel rounded-[2rem] p-8 md:p-10">
-            <p className="eyebrow">Secure Access</p>
-            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-gray-900 md:text-5xl">
-              {mode === "login"
-                ? "Step into a cleaner document review workspace."
-                : "Create an account and start routing approvals faster."}
-            </h1>
+    <main className="page-shell flex items-center justify-center">
+      <div className="flex w-full flex-col items-center px-6">
+        <div className="mb-8 text-center">
+          <p className="eyebrow text-2xl">AI-Assisted Review System</p>
+          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-gray-900 md:whitespace-nowrap md:text-5xl">
+            Upload, review, and sign documents.
+          </h1>
+        </div>
 
-            <p className="muted-copy mt-5 max-w-xl text-lg leading-8">
-              Centralize uploads, reviewer assignments, approval decisions, and
-              system logs without the usual clutter.
-            </p>
-
-            <div className="mt-8 grid gap-4 sm:grid-cols-2">
-              <div className="metric-card rounded-[1.5rem] p-5">
-                <p className="text-sm font-medium text-gray-600">Workflow</p>
-                <p className="mt-2 text-2xl font-semibold text-gray-900">
-                  Upload to decision
-                </p>
-              </div>
-
-              <div className="metric-card rounded-[1.5rem] p-5">
-                <p className="text-sm font-medium text-gray-600">Visibility</p>
-                <p className="mt-2 text-2xl font-semibold text-gray-900">
-                  Auditable by default
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section className="glass-panel w-full rounded-[2rem] p-8 md:p-10">
-            <h2 className="text-2xl font-semibold text-gray-900">
+        <section className="glass-panel w-full max-w-md rounded-[2rem] p-8 md:p-10">
+            <h2 className="mb-6 text-2xl font-semibold text-gray-900">
               {mode === "login" ? "Sign In" : "Create Account"}
             </h2>
-
-            <p className="muted-copy mt-2 mb-6">
-              AI-powered document review and approval system
-            </p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               {mode === "register" && (
@@ -212,8 +184,7 @@ export default function LoginPage() {
                 ? "Do not have an account? Create one"
                 : "Already have an account? Sign in"}
             </button>
-          </section>
-        </div>
+        </section>
       </div>
     </main>
   );

@@ -47,11 +47,13 @@ export default async function DocumentsPage() {
           </div>
         </div>
 
-        <div className="mb-6 flex justify-end">
-          <Link href="/documents/new" className="button-primary">
-            Create New Document
-          </Link>
-        </div>
+        {documents && documents.length > 0 && (
+          <div className="mb-6 flex justify-end">
+            <Link href="/documents/new" className="button-primary">
+              Create New Document
+            </Link>
+          </div>
+        )}
 
         <div className="section-card overflow-hidden rounded-[2rem]">
           <div className="border-b border-gray-200/70 px-6 py-5">
