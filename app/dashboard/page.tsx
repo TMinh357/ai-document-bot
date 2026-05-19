@@ -16,20 +16,27 @@ export default async function DashboardPage() {
   const isAdmin = role === "admin";
   const canReview = role === "reviewer" || role === "admin";
 
-  if (canReview) {
-    await fireOverdueReminders(user.id);
-  }
+  type PendingReviewRow = {
+    id: string;
+    due_at: string | null;
+    round_no: number | null;
+    created_at: string;
+    document:
+      | { id: string; title: string | null; status: string }
+      | { id: string; title: string | null; status: string }[]
+      | null;
+  };
 
+  // All queries below are independent — run them in parallel.
   const documentCountQuery = supabase
     .from("documents")
     .select("*", { count: "exact", head: true });
+  const documentCountPromise = isAdmin
+    ? documentCountQuery
+    : documentCountQuery.eq("owner_id", user.id);
 
-  const { count: documentCount } = isAdmin
-    ? await documentCountQuery
-    : await documentCountQuery.eq("owner_id", user.id);
-
-  const { data: myPendingReviews } = canReview
-    ? await supabase
+  const pendingReviewsPromise = canReview
+    ? supabase
         .from("approvals")
         .select(
           `
@@ -47,20 +54,53 @@ export default async function DashboardPage() {
         .eq("reviewer_id", user.id)
         .eq("status", "pending")
         .order("due_at", { ascending: true, nullsFirst: false })
-    : { data: [] };
+    : Promise.resolve({ data: [] as PendingReviewRow[] });
 
-  type PendingReviewRow = {
-    id: string;
-    due_at: string | null;
-    round_no: number | null;
-    created_at: string;
-    document:
-      | { id: string; title: string | null; status: string }
-      | { id: string; title: string | null; status: string }[]
-      | null;
-  };
+  const unreadPromise = supabase
+    .from("notifications")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .eq("is_read", false);
 
-  const pendingReviews = (myPendingReviews || []) as PendingReviewRow[];
+  const chartDocsQuery = supabase
+    .from("documents")
+    .select("status, created_at");
+  const chartDocsPromise = isAdmin
+    ? chartDocsQuery
+    : chartDocsQuery.eq("owner_id", user.id);
+
+  const approvalRatioQuery = supabase.from("approvals").select("status");
+  const approvalRatioPromise = canReview
+    ? isAdmin
+      ? approvalRatioQuery
+      : approvalRatioQuery.eq("reviewer_id", user.id)
+    : Promise.resolve({ data: null as { status: string }[] | null });
+
+  const remindersPromise = canReview
+    ? fireOverdueReminders(user.id)
+    : Promise.resolve();
+
+  const [
+    documentCountResult,
+    pendingReviewsResult,
+    unreadResult,
+    chartDocsResult,
+    approvalRatioResult,
+  ] = await Promise.all([
+    documentCountPromise,
+    pendingReviewsPromise,
+    unreadPromise,
+    chartDocsPromise,
+    approvalRatioPromise,
+    remindersPromise,
+  ]);
+
+  const documentCount = documentCountResult.count;
+  const pendingReviews = (pendingReviewsResult.data || []) as PendingReviewRow[];
+  const unreadCount = unreadResult.count ?? 0;
+  const chartDocs = chartDocsResult.data;
+  const ratioData = approvalRatioResult.data;
+
   const pendingReviewCount = pendingReviews.length;
   const nowMs = Date.now();
   const nearDueMs = NEAR_DUE_HOURS * 60 * 60 * 1000;
@@ -75,25 +115,9 @@ export default async function DashboardPage() {
       new Date(r.due_at).getTime() - nowMs <= nearDueMs
   ).length;
 
-  const { count: unreadNotificationCount } = await supabase
-    .from("notifications")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id)
-    .eq("is_read", false);
-
-  const unreadCount = unreadNotificationCount ?? 0;
-
   const documentsCaption = isAdmin
     ? "Total documents in the system"
     : "Documents you own";
-
-  const chartDocsQuery = supabase
-    .from("documents")
-    .select("status, created_at");
-
-  const { data: chartDocs } = isAdmin
-    ? await chartDocsQuery
-    : await chartDocsQuery.eq("owner_id", user.id);
 
   const statusCounts = {
     draft: 0,
@@ -134,12 +158,6 @@ export default async function DashboardPage() {
   } | null = null;
 
   if (canReview) {
-    const approvalsRatioQuery = supabase.from("approvals").select("status");
-
-    const { data: ratioData } = isAdmin
-      ? await approvalsRatioQuery
-      : await approvalsRatioQuery.eq("reviewer_id", user.id);
-
     approvalRatio = { approved: 0, rejected: 0, pending: 0 };
 
     (ratioData ?? []).forEach((a) => {

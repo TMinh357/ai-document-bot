@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 type Signature = {
@@ -29,13 +30,16 @@ export default function SignDocumentPanel({
   documentStatus,
   signatures,
 }: SignDocumentPanelProps) {
+  const router = useRouter();
+  const [localSignatures, setLocalSignatures] = useState(signatures);
+  const [localStatus, setLocalStatus] = useState(documentStatus);
   const [signatureHash, setSignatureHash] = useState("");
   const [message, setMessage] = useState("");
   const [isSigning, setIsSigning] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
 
-  const hasSignatures = signatures.length > 0;
+  const hasSignatures = localSignatures.length > 0;
 
   async function signDocument() {
     setMessage("");
@@ -56,7 +60,18 @@ export default function SignDocumentPanel({
 
     setSignatureHash(data.signatureHash || "");
     setMessage("Document signature has been created successfully.");
+
+    const newSignature: Signature = {
+      id: `local-${Date.now()}`,
+      signature_hash: data.signatureHash,
+      signed_at: new Date().toISOString(),
+      signer_id: "",
+    };
+    setLocalSignatures([newSignature, ...localSignatures]);
+    setLocalStatus("signed");
+
     setIsSigning(false);
+    router.refresh();
   }
 
   async function verifyDocument() {
@@ -107,7 +122,7 @@ export default function SignDocumentPanel({
         <div className="flex flex-wrap gap-3">
           <button
             onClick={signDocument}
-            disabled={isSigning || documentStatus !== "approved"}
+            disabled={isSigning || localStatus !== "approved"}
             className="rounded-xl bg-teal-700 px-5 py-3 text-sm font-medium text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSigning ? "Signing..." : "Sign Approved Document"}
@@ -132,7 +147,7 @@ export default function SignDocumentPanel({
         </div>
       </div>
 
-      {documentStatus !== "approved" && documentStatus !== "signed" && (
+      {localStatus !== "approved" && localStatus !== "signed" && (
         <p className="mt-4 rounded-xl bg-yellow-50 p-3 text-sm text-yellow-800">
           This document must be approved before it can be signed.
         </p>
@@ -238,8 +253,8 @@ export default function SignDocumentPanel({
         <h3 className="font-semibold text-gray-900">Signature History</h3>
 
         <div className="mt-4 divide-y divide-gray-200 rounded-2xl border border-gray-200">
-          {signatures.length > 0 ? (
-            signatures.map((signature) => (
+          {localSignatures.length > 0 ? (
+            localSignatures.map((signature) => (
               <div key={signature.id} className="p-4">
                 <p className="text-sm text-gray-600">
                   Signed at: {new Date(signature.signed_at).toLocaleString()}
