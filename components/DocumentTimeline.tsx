@@ -1,3 +1,5 @@
+import FormattedDate from "./FormattedDate";
+
 export type TimelineEventType =
   | "created"
   | "uploaded"
@@ -107,7 +109,7 @@ export default function DocumentTimeline({
                   </div>
 
                   <p className="mt-1 text-xs text-gray-500">
-                    {new Date(event.timestamp).toLocaleString()}
+                    <FormattedDate value={event.timestamp} />
                     {event.by && (
                       <>
                         {" · "}

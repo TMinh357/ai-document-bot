@@ -5,6 +5,7 @@ import UserBadge from "@/components/UserBadge";
 import ActiveLink from "@/components/ActiveLink";
 import RoleSelector from "@/components/admin/RoleSelector";
 import StatusSelector from "@/components/admin/StatusSelector";
+import FormattedDate from "@/components/FormattedDate";
 import { requireRole } from "@/lib/supabase/auth";
 
 type AccountStatus = "pending" | "approved" | "rejected";
@@ -107,7 +108,7 @@ export default async function AdminUsersPage() {
                     </h3>
                     <p className="muted-copy mt-1 text-sm">{row.email}</p>
                     <p className="mt-1 text-xs uppercase tracking-[0.14em] text-gray-400">
-                      Joined {new Date(row.created_at).toLocaleDateString()}
+                      Joined <FormattedDate value={row.created_at} dateOnly />
                     </p>
                   </div>
 

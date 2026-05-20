@@ -2,6 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import SigningKeySetup from "./SigningKeySetup";
+import {
+  hexToBytes,
+  importPrivateKeyJwk,
+  signHashBytes,
+} from "@/lib/crypto/signing";
+import { loadKeyRecord } from "@/lib/crypto/key-storage";
 
 type Reviewer = {
   id: string;
@@ -14,6 +21,7 @@ type SubmitForReviewFormProps = {
   currentStatus: string;
   reviewers: Reviewer[];
   latestVersionNo: number | null;
+  userId: string;
 };
 
 export default function SubmitForReviewForm({
@@ -21,6 +29,7 @@ export default function SubmitForReviewForm({
   currentStatus,
   reviewers,
   latestVersionNo,
+  userId,
 }: SubmitForReviewFormProps) {
   const router = useRouter();
 
@@ -29,6 +38,8 @@ export default function SubmitForReviewForm({
   const [filterText, setFilterText] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showKeySetup, setShowKeySetup] = useState(false);
+  const [pendingReviewerIds, setPendingReviewerIds] = useState<string[]>([]);
 
   if (currentStatus !== "draft") {
     return null;
@@ -46,6 +57,50 @@ export default function SubmitForReviewForm({
     });
   }
 
+  async function submitWithKey(reviewerIds: string[], privateKeyJwk: string) {
+    setIsLoading(true);
+    try {
+      // Get the SHA-256 hash of the latest file from the server.
+      const hashResponse = await fetch(
+        `/api/documents/${documentId}/file-hash`
+      );
+      const hashData = await hashResponse.json();
+      if (!hashResponse.ok) {
+        throw new Error(hashData.error || "Failed to fetch file hash.");
+      }
+
+      // Sign the hash with the owner's private key.
+      const privateKey = await importPrivateKeyJwk(privateKeyJwk);
+      const signatureBytes = await signHashBytes(
+        privateKey,
+        hexToBytes(hashData.hash)
+      );
+
+      const response = await fetch(`/api/documents/${documentId}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reviewerIds,
+          dueInDays,
+          signatureBytes,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage(result?.error || "Failed to submit for review.");
+        return;
+      }
+
+      router.refresh();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Submission failed.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function handleSubmitForReview(e: React.FormEvent) {
     e.preventDefault();
     setMessage("");
@@ -57,34 +112,61 @@ export default function SubmitForReviewForm({
       return;
     }
 
-    setIsLoading(true);
-
-    const response = await fetch(`/api/documents/${documentId}/submit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reviewerIds, dueInDays }),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      setMessage(result?.error || "Failed to submit for review.");
-      setIsLoading(false);
+    // Check for an existing private key in this browser.
+    let record;
+    try {
+      record = await loadKeyRecord(userId);
+    } catch (err) {
+      setMessage(
+        err instanceof Error
+          ? err.message
+          : "Could not access your signing key."
+      );
       return;
     }
 
-    router.refresh();
+    if (!record) {
+      // No key yet — open the JIT setup modal and resume after it completes.
+      setPendingReviewerIds(reviewerIds);
+      setShowKeySetup(true);
+      return;
+    }
+
+    await submitWithKey(reviewerIds, record.privateKeyJwk);
+  }
+
+  async function handleKeyReady() {
+    setShowKeySetup(false);
+    const record = await loadKeyRecord(userId);
+    if (record && pendingReviewerIds.length > 0) {
+      await submitWithKey(pendingReviewerIds, record.privateKeyJwk);
+      setPendingReviewerIds([]);
+    }
   }
 
   return (
     <div className="section-card mt-6 rounded-[2rem] p-6 md:p-8">
+      {showKeySetup && (
+        <SigningKeySetup
+          userId={userId}
+          onReady={handleKeyReady}
+          onCancel={() => {
+            setShowKeySetup(false);
+            setPendingReviewerIds([]);
+          }}
+        />
+      )}
+
       <h2 className="text-2xl font-semibold text-gray-900">
         Submit for Review
       </h2>
 
       <p className="muted-copy mt-2 text-sm">
-        Select one or more reviewers. The document will be approved only when
-        every selected reviewer approves; a single rejection ends this round.
+        Select one or more reviewers. Submission requires your digital
+        signature: the document will be signed with your private key as
+        confirmation that you are the author. The document will be approved only
+        when every selected reviewer approves and signs; a single rejection ends
+        this round.
       </p>
 
       {latestVersionNo !== null && (
@@ -192,8 +274,8 @@ export default function SubmitForReviewForm({
             className="button-primary disabled:opacity-60"
           >
             {isLoading
-              ? "Submitting..."
-              : `Submit for Review (${selectedIds.size} reviewer${selectedIds.size === 1 ? "" : "s"})`}
+              ? "Signing and submitting..."
+              : `Sign and Submit (${selectedIds.size} reviewer${selectedIds.size === 1 ? "" : "s"})`}
           </button>
         </form>
       )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import FormattedDate from "./FormattedDate";
 
 type AIMessage = {
   id: string;
@@ -325,7 +326,7 @@ export default function AIWorkspace({
                 </p>
 
                 <p className="mt-2 text-xs text-gray-500">
-                  {new Date(message.created_at).toLocaleString()}
+                  <FormattedDate value={message.created_at} />
                 </p>
               </div>
             ))

@@ -1,6 +1,12 @@
 import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  importPublicKeyJwk,
+  verifySignatureBytes,
+  hexToBytes,
+  ALGORITHM_LABEL,
+} from "@/lib/crypto/signing";
 
 export const runtime = "nodejs";
 
@@ -24,6 +30,10 @@ export async function POST(request: Request, context: RouteContext) {
       { status: 401 }
     );
   }
+
+  const body = await request.json().catch(() => ({}));
+  const signatureBytes =
+    typeof body?.signatureBytes === "string" ? body.signatureBytes : null;
 
   const { data: document } = await supabase
     .from("documents")
@@ -85,7 +95,7 @@ export async function POST(request: Request, context: RouteContext) {
 
   const signatureHash = createHash("sha256").update(buffer).digest("hex");
 
-  // Reject signing if the file was tampered with after approval
+  // Pre-sign tamper check: the file must still match approved_hash.
   if (document.approved_hash && signatureHash !== document.approved_hash) {
     return NextResponse.json(
       {
@@ -96,12 +106,63 @@ export async function POST(request: Request, context: RouteContext) {
     );
   }
 
+  // If the client supplied a cryptographic signature, verify it against
+  // the signer's public key before storing.
+  let storedAlgorithm: string = "SHA-256";
+
+  if (signatureBytes) {
+    const { data: signerProfile } = await supabase
+      .from("profiles")
+      .select("public_key")
+      .eq("id", user.id)
+      .single();
+
+    if (!signerProfile?.public_key) {
+      return NextResponse.json(
+        {
+          error:
+            "No public key is registered for your account. Re-open the Sign dialog to set up a signing key.",
+        },
+        { status: 400 }
+      );
+    }
+
+    try {
+      const publicKey = await importPublicKeyJwk(signerProfile.public_key);
+      const hashBytes = hexToBytes(signatureHash);
+      const valid = await verifySignatureBytes(
+        publicKey,
+        signatureBytes,
+        hashBytes
+      );
+
+      if (!valid) {
+        return NextResponse.json(
+          {
+            error:
+              "Signature verification failed. The provided signature does not match your public key.",
+          },
+          { status: 400 }
+        );
+      }
+
+      storedAlgorithm = ALGORITHM_LABEL;
+    } catch {
+      return NextResponse.json(
+        { error: "Could not verify the supplied signature." },
+        { status: 400 }
+      );
+    }
+  }
+
   const { error: signatureError } = await supabase
     .from("document_signatures")
     .insert({
       document_id: id,
       signer_id: user.id,
       signature_hash: signatureHash,
+      signature_bytes: signatureBytes,
+      algorithm: storedAlgorithm,
     });
 
   if (signatureError) {
@@ -126,13 +187,15 @@ export async function POST(request: Request, context: RouteContext) {
     target_id: id,
     metadata: {
       version_id: version.id,
-      algorithm: "SHA-256",
+      algorithm: storedAlgorithm,
       signature_hash: signatureHash,
+      has_crypto_signature: Boolean(signatureBytes),
     },
   });
 
   return NextResponse.json({
     signatureHash,
-    algorithm: "SHA-256",
+    algorithm: storedAlgorithm,
+    hasCryptoSignature: Boolean(signatureBytes),
   });
 }

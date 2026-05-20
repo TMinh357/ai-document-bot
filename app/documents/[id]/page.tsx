@@ -11,6 +11,7 @@ import type { Highlight } from "@/components/InlinePdfViewer";
 import DocumentTimeline, {
   type TimelineEvent,
 } from "@/components/DocumentTimeline";
+import FormattedDate from "@/components/FormattedDate";
 import { requireUser } from "@/lib/supabase/auth";
 
 type PageProps = {
@@ -32,7 +33,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
 
   const { data: document } = await supabase
     .from("documents")
-    .select("id, title, description, status, created_at, updated_at, owner_id")
+    .select("id, title, description, status, created_at, updated_at, owner_id, approved_hash")
     .eq("id", id)
     .single();
 
@@ -138,7 +139,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
 
   const { data: signatures } = await supabase
     .from("document_signatures")
-    .select("id, signer_id, signature_hash, signed_at")
+    .select("id, signer_id, signature_hash, signature_bytes, algorithm, signed_at")
     .eq("document_id", id)
     .order("signed_at", { ascending: false });
 
@@ -347,14 +348,14 @@ export default async function DocumentDetailPage({ params }: PageProps) {
             <div className="rounded-2xl border border-gray-200 p-5">
               <p className="text-sm text-gray-600">Created At</p>
               <p className="mt-1 font-semibold text-gray-900">
-                {new Date(document.created_at).toLocaleString()}
+                <FormattedDate value={document.created_at} />
               </p>
             </div>
 
             <div className="rounded-2xl border border-gray-200 p-5">
               <p className="text-sm text-gray-600">Last Updated</p>
               <p className="mt-1 font-semibold text-gray-900">
-                {new Date(document.updated_at).toLocaleString()}
+                <FormattedDate value={document.updated_at} />
               </p>
             </div>
 
@@ -386,7 +387,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
                   {latestRejection.reviewed_at && (
                     <>
                       {" · "}
-                      {new Date(latestRejection.reviewed_at).toLocaleString()}
+                      <FormattedDate value={latestRejection.reviewed_at} />
                     </>
                   )}
                 </p>
@@ -445,7 +446,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
                       </div>
 
                       <p className="mt-1 text-xs text-gray-600">
-                        Uploaded at: {new Date(version.created_at).toLocaleString()}
+                        Uploaded at: <FormattedDate value={version.created_at} />
                       </p>
 
                       <p className="mt-1 break-all text-xs text-gray-500">
@@ -514,6 +515,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
             currentStatus={document.status}
             reviewers={reviewers || []}
             latestVersionNo={latestVersion?.version_no ?? null}
+            userId={user.id}
           />
         )}
 
@@ -535,9 +537,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
                   <p className="mt-1 text-sm text-gray-600">
                     Round deadline:{" "}
                     <span className="font-semibold text-gray-900">
-                      {new Date(
-                        currentRoundApprovals[0].due_at
-                      ).toLocaleString()}
+                      <FormattedDate value={currentRoundApprovals[0].due_at} />
                     </span>
                   </p>
                 )}
@@ -585,6 +585,8 @@ export default async function DocumentDetailPage({ params }: PageProps) {
         {canReview && currentApproval && (
           <ReviewActions
             approvalId={currentApproval.id}
+            documentId={document.id}
+            userId={user.id}
             approvedCount={approvedCount}
             totalCount={totalReviewers}
           />
@@ -592,8 +594,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
 
         <SignDocumentPanel
           documentId={document.id}
-          documentStatus={document.status}
-          signatures={signatures || []}
+          signatureCount={(signatures || []).length}
         />
 
         <section className="mt-8 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
@@ -630,14 +631,12 @@ export default async function DocumentDetailPage({ params }: PageProps) {
                               </p>
 
                               <p className="mt-1 text-sm text-gray-600">
-                                Requested at:{" "}
-                                {new Date(approval.created_at).toLocaleString()}
+                                Requested at: <FormattedDate value={approval.created_at} />
                               </p>
 
                               {approval.reviewed_at && (
                                 <p className="mt-1 text-sm text-gray-600">
-                                  Reviewed at:{" "}
-                                  {new Date(approval.reviewed_at).toLocaleString()}
+                                  Reviewed at: <FormattedDate value={approval.reviewed_at} />
                                 </p>
                               )}
                             </div>

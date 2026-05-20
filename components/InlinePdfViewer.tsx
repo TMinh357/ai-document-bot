@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/TextLayer.css";
+import FormattedDate from "./FormattedDate";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
@@ -438,7 +439,7 @@ export default function InlinePdfViewer({
                       )}
                     </div>
                     <p className="mt-2 text-[10px] uppercase tracking-[0.14em] text-gray-400">
-                      {new Date(h.created_at).toLocaleString()}
+                      <FormattedDate value={h.created_at} />
                     </p>
                   </button>
                 ))

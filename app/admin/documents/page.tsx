@@ -5,6 +5,7 @@ import UserBadge from "@/components/UserBadge";
 import DeleteDocumentButton from "@/components/admin/DeleteDocumentButton";
 import StatusBadge from "@/components/StatusBadge";
 import ActiveLink from "@/components/ActiveLink";
+import FormattedDate from "@/components/FormattedDate";
 import { requireRole } from "@/lib/supabase/auth";
 
 const STATUS_OPTIONS = ["draft", "pending", "approved", "rejected", "signed"];
@@ -276,12 +277,10 @@ export default async function AdminDocumentsPage({ searchParams }: PageProps) {
                           </span>
                         </span>
                         <span>
-                          Created:{" "}
-                          {new Date(doc.created_at).toLocaleDateString()}
+                          Created: <FormattedDate value={doc.created_at} dateOnly />
                         </span>
                         <span>
-                          Updated:{" "}
-                          {new Date(doc.updated_at).toLocaleDateString()}
+                          Updated: <FormattedDate value={doc.updated_at} dateOnly />
                         </span>
                       </div>
                     </div>

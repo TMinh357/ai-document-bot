@@ -7,6 +7,12 @@ import {
   sendDocumentRejectedEmail,
   sendReviewProgressEmail,
 } from "@/lib/email";
+import {
+  ALGORITHM_LABEL,
+  hexToBytes,
+  importPublicKeyJwk,
+  verifySignatureBytes,
+} from "@/lib/crypto/signing";
 
 export const runtime = "nodejs";
 
@@ -38,6 +44,8 @@ export async function POST(request: Request, context: RouteContext) {
       typeof body?.status === "string" ? body.status : "";
     const comment =
       typeof body?.comment === "string" ? body.comment.trim() : "";
+    const signatureBytes =
+      typeof body?.signatureBytes === "string" ? body.signatureBytes : null;
 
     if (decision !== "approved" && decision !== "rejected") {
       return NextResponse.json(
@@ -49,6 +57,16 @@ export async function POST(request: Request, context: RouteContext) {
     if (decision === "rejected" && comment.length === 0) {
       return NextResponse.json(
         { error: "A comment is required when rejecting a document." },
+        { status: 400 }
+      );
+    }
+
+    if (decision === "approved" && !signatureBytes) {
+      return NextResponse.json(
+        {
+          error:
+            "Approval must include the reviewer's digital signature. Please set up your signing key and try again.",
+        },
         { status: 400 }
       );
     }
@@ -124,6 +142,88 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
+    // If approving, verify the reviewer's signature against the current file hash.
+    let reviewerFileHash: string | null = null;
+    if (decision === "approved") {
+      const { data: reviewerProfile } = await admin
+        .from("profiles")
+        .select("public_key")
+        .eq("id", user.id)
+        .single();
+
+      if (!reviewerProfile?.public_key) {
+        return NextResponse.json(
+          {
+            error:
+              "No public key is registered for your account. Open the review form again to set up a signing key.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const { data: latestVersion } = await admin
+        .from("document_versions")
+        .select("file_path")
+        .eq("document_id", approval.document_id)
+        .order("version_no", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!latestVersion?.file_path) {
+        return NextResponse.json(
+          { error: "No uploaded file was found for this document." },
+          { status: 404 }
+        );
+      }
+
+      const { data: signedUrlData, error: signedUrlError } = await admin.storage
+        .from("documents")
+        .createSignedUrl(latestVersion.file_path, 60);
+
+      if (signedUrlError || !signedUrlData?.signedUrl) {
+        return NextResponse.json(
+          { error: "Failed to access the file for signing verification." },
+          { status: 500 }
+        );
+      }
+
+      const fileResponse = await fetch(signedUrlData.signedUrl);
+      if (!fileResponse.ok) {
+        return NextResponse.json(
+          { error: "Failed to download the file for signing verification." },
+          { status: 500 }
+        );
+      }
+
+      reviewerFileHash = createHash("sha256")
+        .update(Buffer.from(await fileResponse.arrayBuffer()))
+        .digest("hex");
+
+      try {
+        const publicKey = await importPublicKeyJwk(reviewerProfile.public_key);
+        const valid = await verifySignatureBytes(
+          publicKey,
+          signatureBytes as string,
+          hexToBytes(reviewerFileHash)
+        );
+
+        if (!valid) {
+          return NextResponse.json(
+            {
+              error:
+                "Reviewer signature verification failed. The signature does not match your public key for the current file.",
+            },
+            { status: 400 }
+          );
+        }
+      } catch {
+        return NextResponse.json(
+          { error: "Could not verify the supplied reviewer signature." },
+          { status: 400 }
+        );
+      }
+    }
+
     const { error: updateError } = await admin
       .from("approvals")
       .update({
@@ -138,6 +238,28 @@ export async function POST(request: Request, context: RouteContext) {
         { error: updateError.message },
         { status: 500 }
       );
+    }
+
+    // Record the reviewer's cryptographic signature alongside the approval.
+    if (decision === "approved" && reviewerFileHash && signatureBytes) {
+      const { error: reviewerSigError } = await admin
+        .from("document_signatures")
+        .insert({
+          document_id: approval.document_id,
+          signer_id: user.id,
+          signature_hash: reviewerFileHash,
+          signature_bytes: signatureBytes,
+          algorithm: ALGORITHM_LABEL,
+          signature_role: "reviewer_approval",
+          round_no: currentRound,
+        });
+
+      if (reviewerSigError) {
+        return NextResponse.json(
+          { error: reviewerSigError.message },
+          { status: 500 }
+        );
+      }
     }
 
     const { data: roundApprovals, error: roundError } = await admin

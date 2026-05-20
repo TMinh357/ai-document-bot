@@ -4,6 +4,7 @@ import NotificationBell from "@/components/NotificationBell";
 import UserBadge from "@/components/UserBadge";
 import StatusBadge from "@/components/StatusBadge";
 import ActiveLink from "@/components/ActiveLink";
+import FormattedDate from "@/components/FormattedDate";
 import { requireRole } from "@/lib/supabase/auth";
 
 export default async function AdminApprovalsPage() {
@@ -82,13 +83,11 @@ export default async function AdminApprovalsPage() {
                         </span>
                       </span>
                       <span>
-                        Requested:{" "}
-                        {new Date(approval.created_at).toLocaleString()}
+                        Requested: <FormattedDate value={approval.created_at} />
                       </span>
                       {approval.reviewed_at && (
                         <span>
-                          Reviewed:{" "}
-                          {new Date(approval.reviewed_at).toLocaleString()}
+                          Reviewed: <FormattedDate value={approval.reviewed_at} />
                         </span>
                       )}
                     </div>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import FormattedDate from "./FormattedDate";
 
 type Notification = {
   id: string;
@@ -114,7 +115,7 @@ export default function NotificationPanel({
                       )}
 
                       <p className="mt-1 text-xs text-gray-400">
-                        {new Date(n.created_at).toLocaleString()}
+                        <FormattedDate value={n.created_at} />
                       </p>
                     </div>
 

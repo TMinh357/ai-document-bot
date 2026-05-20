@@ -3,6 +3,7 @@ import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
 import UserBadge from "@/components/UserBadge";
 import ActiveLink from "@/components/ActiveLink";
+import FormattedDate from "@/components/FormattedDate";
 import { requireRole } from "@/lib/supabase/auth";
 import { fireOverdueReminders } from "@/lib/review-reminders";
 
@@ -147,12 +148,10 @@ export default async function ReviewsPage() {
                       </p>
 
                       <p className="mt-2 text-xs uppercase tracking-[0.14em] text-gray-500">
-                        Assigned at:{" "}
-                        {new Date(approval.created_at).toLocaleString()}
+                        Assigned at: <FormattedDate value={approval.created_at} />
                         {approval.due_at && (
                           <>
-                            {" · "}Deadline:{" "}
-                            {new Date(approval.due_at).toLocaleString()}
+                            {" · "}Deadline: <FormattedDate value={approval.due_at} />
                           </>
                         )}
                       </p>

@@ -1,7 +1,14 @@
+import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendReviewAssignedEmail } from "@/lib/email";
+import {
+  ALGORITHM_LABEL,
+  hexToBytes,
+  importPublicKeyJwk,
+  verifySignatureBytes,
+} from "@/lib/crypto/signing";
 
 export const runtime = "nodejs";
 
@@ -32,6 +39,18 @@ export async function POST(request: Request, context: RouteContext) {
     const reviewerIdsRaw = Array.isArray(body?.reviewerIds)
       ? body.reviewerIds
       : [];
+    const signatureBytes =
+      typeof body?.signatureBytes === "string" ? body.signatureBytes : null;
+
+    if (!signatureBytes) {
+      return NextResponse.json(
+        {
+          error:
+            "Submission must include the owner's digital signature. Please set up your signing key and try again.",
+        },
+        { status: 400 }
+      );
+    }
 
     const reviewerIds: string[] = Array.from(
       new Set(
@@ -125,6 +144,87 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
+    // Verify the owner's signature against the current file hash.
+    const { data: ownerProfile } = await admin
+      .from("profiles")
+      .select("public_key")
+      .eq("id", user.id)
+      .single();
+
+    if (!ownerProfile?.public_key) {
+      return NextResponse.json(
+        {
+          error:
+            "No public key is registered for your account. Open the submit form again to set up a signing key.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const { data: latestVersion } = await admin
+      .from("document_versions")
+      .select("id, file_path")
+      .eq("document_id", documentId)
+      .order("version_no", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!latestVersion?.file_path) {
+      return NextResponse.json(
+        { error: "No uploaded file was found for this document." },
+        { status: 404 }
+      );
+    }
+
+    const { data: signedUrlData, error: signedUrlError } = await admin.storage
+      .from("documents")
+      .createSignedUrl(latestVersion.file_path, 60);
+
+    if (signedUrlError || !signedUrlData?.signedUrl) {
+      return NextResponse.json(
+        { error: "Failed to access the file for signing verification." },
+        { status: 500 }
+      );
+    }
+
+    const fileResponse = await fetch(signedUrlData.signedUrl);
+    if (!fileResponse.ok) {
+      return NextResponse.json(
+        { error: "Failed to download the file for signing verification." },
+        { status: 500 }
+      );
+    }
+
+    const arrayBuffer = await fileResponse.arrayBuffer();
+    const fileHash = createHash("sha256")
+      .update(Buffer.from(arrayBuffer))
+      .digest("hex");
+
+    try {
+      const publicKey = await importPublicKeyJwk(ownerProfile.public_key);
+      const hashBytes = hexToBytes(fileHash);
+      const valid = await verifySignatureBytes(
+        publicKey,
+        signatureBytes,
+        hashBytes
+      );
+
+      if (!valid) {
+        return NextResponse.json(
+          {
+            error:
+              "Owner signature verification failed. The signature does not match your public key for the current file.",
+          },
+          { status: 400 }
+        );
+      }
+    } catch {
+      return NextResponse.json(
+        { error: "Could not verify the supplied owner signature." },
+        { status: 400 }
+      );
+    }
+
     const { data: previousRound } = await admin
       .from("approvals")
       .select("round_no")
@@ -134,6 +234,25 @@ export async function POST(request: Request, context: RouteContext) {
       .single();
 
     const nextRound = (previousRound?.round_no ?? 0) + 1;
+
+    const { error: ownerSigError } = await admin
+      .from("document_signatures")
+      .insert({
+        document_id: documentId,
+        signer_id: user.id,
+        signature_hash: fileHash,
+        signature_bytes: signatureBytes,
+        algorithm: ALGORITHM_LABEL,
+        signature_role: "owner_submission",
+        round_no: nextRound,
+      });
+
+    if (ownerSigError) {
+      return NextResponse.json(
+        { error: ownerSigError.message },
+        { status: 500 }
+      );
+    }
 
     const { error: insertError } = await admin.from("approvals").insert(
       reviewerIds.map((reviewerId) => ({
@@ -181,7 +300,9 @@ export async function POST(request: Request, context: RouteContext) {
       },
     });
 
-    const dueLabel = dueAt.toLocaleDateString();
+    const dueLabel = dueAt.toLocaleDateString("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+    });
 
     await admin.from("notifications").insert(
       reviewerIds.map((reviewerId) => ({

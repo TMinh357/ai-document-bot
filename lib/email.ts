@@ -130,7 +130,9 @@ export async function sendReviewAssignedEmail(args: {
   if (!to) return;
 
   const title = escapeHtml(args.documentTitle);
-  const dueLabel = new Date(args.dueAt).toLocaleDateString();
+  const dueLabel = new Date(args.dueAt).toLocaleDateString("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+  });
   const url = buildAppUrl(`/documents/${args.documentId}`);
 
   await sendEmail({

@@ -5,6 +5,7 @@ import UserBadge from "@/components/UserBadge";
 import ActiveLink from "@/components/ActiveLink";
 import StatusBadge from "@/components/StatusBadge";
 import EmptyState from "@/components/EmptyState";
+import FormattedDate from "@/components/FormattedDate";
 import { requireUser } from "@/lib/supabase/auth";
 
 export default async function DocumentsPage() {
@@ -77,8 +78,7 @@ export default async function DocumentsPage() {
                       {document.description || "No description provided"}
                     </p>
                     <p className="mt-2 text-xs uppercase tracking-[0.14em] text-gray-500">
-                      Created at:{" "}
-                      {new Date(document.created_at).toLocaleString()}
+                      Created at: <FormattedDate value={document.created_at} />
                     </p>
                   </div>
 

@@ -3,6 +3,7 @@ import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
 import UserBadge from "@/components/UserBadge";
 import ActiveLink from "@/components/ActiveLink";
+import FormattedDate from "@/components/FormattedDate";
 import { requireRole } from "@/lib/supabase/auth";
 
 type SearchParams = {
@@ -257,7 +258,7 @@ export default async function AdminAuditLogsPage({ searchParams }: PageProps) {
                               : "System"}
                           </span>
                         </span>
-                        <span>{new Date(log.created_at).toLocaleString()}</span>
+                        <span><FormattedDate value={log.created_at} /></span>
                       </div>
 
                       {log.metadata &&

@@ -5,6 +5,7 @@ import UserBadge from "@/components/UserBadge";
 import ActiveLink from "@/components/ActiveLink";
 import DashboardCharts from "@/components/DashboardCharts";
 import DashboardRealtime from "@/components/DashboardRealtime";
+import FormattedDate from "@/components/FormattedDate";
 import { requireUser } from "@/lib/supabase/auth";
 import { fireOverdueReminders } from "@/lib/review-reminders";
 
@@ -348,9 +349,13 @@ export default async function DashboardPage() {
                       </div>
 
                       <p className="mt-1 text-xs text-gray-600">
-                        {row.due_at
-                          ? `Deadline: ${new Date(row.due_at).toLocaleString()}`
-                          : "No deadline set"}
+                        {row.due_at ? (
+                          <>
+                            Deadline: <FormattedDate value={row.due_at} />
+                          </>
+                        ) : (
+                          "No deadline set"
+                        )}
                       </p>
                     </div>
 
