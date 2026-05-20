@@ -1,14 +1,18 @@
 import { createHash } from "crypto";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { verifyAuthenticationResponse } from "@simplewebauthn/server";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { requireUser } from "@/lib/supabase/auth";
 import PrintCertificateButton from "@/components/PrintCertificateButton";
 import FormattedDate from "@/components/FormattedDate";
+import { getExpectedOrigin, getRpId } from "@/lib/webauthn/config";
+import { hexToBase64Url } from "@/lib/webauthn/verify";
+import { aaguidToName } from "@/lib/webauthn/aaguid-registry";
 import {
-  hexToBytes,
-  importPublicKeyJwk,
-  verifySignatureBytes,
-} from "@/lib/crypto/signing";
+  decodeAuthenticatorData,
+  type DecodedAuthenticatorData,
+} from "@/lib/webauthn/authenticator-data";
 
 type PageProps = {
   params: Promise<{
@@ -21,17 +25,41 @@ type SignatureRow = {
   signer_id: string;
   signature_hash: string;
   signature_bytes: string | null;
+  client_data_json: string | null;
+  authenticator_data: string | null;
+  credential_id: string | null;
   algorithm: string | null;
   signature_role: string | null;
   round_no: number | null;
   signed_at: string;
 };
 
+type SignerInfo = {
+  name: string;
+  email: string | null;
+  role: string | null;
+  aaguid: string | null;
+  deviceType: string | null;
+  transports: string[] | null;
+  registeredAt: string | null;
+};
+
 type VerifiedSignature = SignatureRow & {
-  signerName: string;
+  signer: SignerInfo;
   hashMatch: boolean;
   cryptoSignatureValid: boolean | null;
+  isWebAuthn: boolean;
+  decodedAuthData: DecodedAuthenticatorData | null;
 };
+
+type AuthenticatorTransport =
+  | "ble"
+  | "cable"
+  | "hybrid"
+  | "internal"
+  | "nfc"
+  | "smart-card"
+  | "usb";
 
 function roleHeading(role: string | null): string {
   if (role === "owner_submission") return "Owner Submission";
@@ -75,7 +103,7 @@ export default async function CertificatePage({ params }: PageProps) {
   const { data: signatures } = await supabase
     .from("document_signatures")
     .select(
-      "id, signer_id, signature_hash, signature_bytes, algorithm, signature_role, round_no, signed_at"
+      "id, signer_id, signature_hash, signature_bytes, client_data_json, authenticator_data, credential_id, algorithm, signature_role, round_no, signed_at"
     )
     .eq("document_id", id)
     .order("signed_at", { ascending: true });
@@ -111,21 +139,18 @@ export default async function CertificatePage({ params }: PageProps) {
     );
   }
 
-  // Resolve signer names and public keys once.
   const signerIds = Array.from(new Set(signatures.map((s) => s.signer_id)));
   const { data: signerProfiles } = await supabase
     .from("profiles")
-    .select("id, full_name, public_key")
+    .select(
+      "id, full_name, role, webauthn_credential_id, webauthn_public_key, webauthn_transports, webauthn_device_type, webauthn_aaguid, webauthn_registered_at"
+    )
     .in("id", signerIds);
 
   const profileMap = new Map(
-    (signerProfiles ?? []).map((p) => [
-      p.id,
-      { name: (p.full_name as string | null) ?? p.id, publicKey: p.public_key as string | null },
-    ])
+    (signerProfiles ?? []).map((p) => [p.id, p])
   );
 
-  // Compute current file hash once.
   const { data: version } = await supabase
     .from("document_versions")
     .select("id, version_no, file_path")
@@ -158,45 +183,91 @@ export default async function CertificatePage({ params }: PageProps) {
     }
   }
 
-  // Verify each signature.
   const verified: VerifiedSignature[] = [];
   for (const sig of signatures as SignatureRow[]) {
     const profile = profileMap.get(sig.signer_id);
-    const hashMatch = currentHash !== null && sig.signature_hash === currentHash;
+    const signer: SignerInfo = {
+      name: (profile?.full_name as string | null) ?? sig.signer_id,
+      email: sig.signer_id === user.id ? (user.email ?? null) : null,
+      role: (profile?.role as string | null) ?? null,
+      aaguid: (profile?.webauthn_aaguid as string | null) ?? null,
+      deviceType: (profile?.webauthn_device_type as string | null) ?? null,
+      transports:
+        (profile?.webauthn_transports as string[] | null) ?? null,
+      registeredAt:
+        (profile?.webauthn_registered_at as string | null) ?? null,
+    };
+    const hashMatch =
+      currentHash !== null && sig.signature_hash === currentHash;
+    const isWebAuthn = Boolean(sig.client_data_json && sig.authenticator_data);
+    const decodedAuthData = sig.authenticator_data
+      ? decodeAuthenticatorData(sig.authenticator_data)
+      : null;
 
     let cryptoSignatureValid: boolean | null = null;
-    if (sig.signature_bytes) {
-      if (profile?.publicKey) {
-        try {
-          const publicKey = await importPublicKeyJwk(profile.publicKey);
-          cryptoSignatureValid = await verifySignatureBytes(
-            publicKey,
-            sig.signature_bytes,
-            hexToBytes(sig.signature_hash)
-          );
-        } catch {
-          cryptoSignatureValid = false;
-        }
-      } else {
+
+    if (
+      isWebAuthn &&
+      sig.signature_bytes &&
+      profile?.webauthn_credential_id &&
+      profile?.webauthn_public_key
+    ) {
+      const reconstructed: AuthenticationResponseJSON = {
+        id: sig.credential_id ?? (profile.webauthn_credential_id as string),
+        rawId: sig.credential_id ?? (profile.webauthn_credential_id as string),
+        type: "public-key",
+        response: {
+          clientDataJSON: sig.client_data_json!,
+          authenticatorData: sig.authenticator_data!,
+          signature: sig.signature_bytes,
+        },
+        clientExtensionResults: {},
+      };
+
+      try {
+        const result = await verifyAuthenticationResponse({
+          response: reconstructed,
+          expectedChallenge: hexToBase64Url(sig.signature_hash),
+          expectedOrigin: getExpectedOrigin(),
+          expectedRPID: getRpId(),
+          requireUserVerification: true,
+          credential: {
+            id: profile.webauthn_credential_id as string,
+            publicKey: new Uint8Array(
+              Buffer.from(profile.webauthn_public_key as string, "base64")
+            ),
+            counter: 0,
+            transports:
+              (profile.webauthn_transports as
+                | AuthenticatorTransport[]
+                | null) ?? undefined,
+          },
+        });
+        cryptoSignatureValid = result.verified;
+      } catch {
         cryptoSignatureValid = false;
       }
+    } else if (sig.signature_bytes) {
+      cryptoSignatureValid = false;
     }
 
     verified.push({
       ...sig,
-      signerName: profile?.name ?? sig.signer_id,
+      signer,
       hashMatch,
       cryptoSignatureValid,
+      isWebAuthn,
+      decodedAuthData,
     });
   }
 
-  const ownerSig = verified.find((v) => v.signature_role === "owner_submission");
+  const ownerSig = verified.find(
+    (v) => v.signature_role === "owner_submission"
+  );
   const reviewerSigs = verified.filter(
     (v) => v.signature_role === "reviewer_approval"
   );
-  const legacySigs = verified.filter(
-    (v) => v.signature_role === null
-  );
+  const legacySigs = verified.filter((v) => v.signature_role === null);
 
   const allHashesMatch = verified.every((v) => v.hashMatch);
   const allCryptoValid = verified
@@ -235,9 +306,10 @@ export default async function CertificatePage({ params }: PageProps) {
               </h1>
               <p className="muted-copy mt-3 text-sm">
                 This certificate attests that the document below was signed
-                using ECDSA P-256 digital signatures over the SHA-256 hash of
-                its contents. The owner signs at submission; each approving
-                reviewer signs their approval.
+                using WebAuthn digital signatures (Windows Hello / platform
+                authenticator) bound to each signer&apos;s device. The owner
+                signs at submission; each approving reviewer signs their
+                approval.
               </p>
             </div>
 
@@ -303,14 +375,10 @@ export default async function CertificatePage({ params }: PageProps) {
                 )}
               </div>
 
-              {ownerSig && (
-                <SignaturePanel signature={ownerSig} />
-              )}
-
+              {ownerSig && <SignaturePanel signature={ownerSig} />}
               {reviewerSigs.map((sig) => (
                 <SignaturePanel key={sig.id} signature={sig} />
               ))}
-
               {legacySigs.map((sig) => (
                 <SignaturePanel key={sig.id} signature={sig} />
               ))}
@@ -337,6 +405,12 @@ export default async function CertificatePage({ params }: PageProps) {
 
 function SignaturePanel({ signature }: { signature: VerifiedSignature }) {
   const hasCrypto = Boolean(signature.signature_bytes);
+  const authName = signature.isWebAuthn
+    ? aaguidToName(signature.signer.aaguid)
+    : null;
+  const flags = signature.decodedAuthData?.flags;
+  const counter = signature.decodedAuthData?.counter;
+
   return (
     <section className="rounded-2xl border border-gray-200 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -345,9 +419,12 @@ function SignaturePanel({ signature }: { signature: VerifiedSignature }) {
             {roleHeading(signature.signature_role)}
           </p>
           <p className="mt-1 font-serif text-2xl italic text-gray-900">
-            {signature.signerName}
+            {signature.signer.name}
           </p>
           <p className="text-xs text-gray-500">
+            {signature.signer.role && (
+              <>Role: {signature.signer.role} · </>
+            )}
             Signed at <FormattedDate value={signature.signed_at} />
             {signature.round_no ? ` · Round ${signature.round_no}` : ""}
           </p>
@@ -381,6 +458,68 @@ function SignaturePanel({ signature }: { signature: VerifiedSignature }) {
         </div>
       </div>
 
+      {signature.isWebAuthn && (
+        <div className="mt-4 grid gap-2 rounded-xl bg-indigo-50/60 p-4 ring-1 ring-indigo-100 md:grid-cols-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-indigo-900 md:col-span-2">
+            Authentication evidence
+          </p>
+          <Field label="Authenticator" value={authName ?? "Unknown"} />
+          <Field
+            label="Device type"
+            value={
+              signature.signer.deviceType === "singleDevice"
+                ? "Single device (hardware-bound)"
+                : signature.signer.deviceType === "multiDevice"
+                  ? "Multi-device (synced credential)"
+                  : "—"
+            }
+          />
+          <Field
+            label="User verified"
+            value={
+              flags?.userVerified
+                ? "Yes — PIN / biometric confirmed at signing"
+                : "No"
+            }
+            ok={flags?.userVerified}
+          />
+          <Field
+            label="User present"
+            value={flags?.userPresent ? "Yes" : "No"}
+            ok={flags?.userPresent}
+          />
+          <Field
+            label="Backup eligible"
+            value={
+              flags?.backupEligible
+                ? "Yes (key can be backed up)"
+                : "No (locked to this authenticator)"
+            }
+          />
+          <Field
+            label="Sign counter"
+            value={counter != null ? counter.toString() : "—"}
+          />
+          {signature.signer.aaguid && (
+            <Field
+              label="AAGUID"
+              value={signature.signer.aaguid}
+              mono
+              className="md:col-span-2"
+            />
+          )}
+          {signature.signer.registeredAt && (
+            <Field
+              label="Credential registered"
+              value={
+                <FormattedDate value={signature.signer.registeredAt} />
+              }
+              className="md:col-span-2"
+            />
+          )}
+        </div>
+      )}
+
       <div className="mt-3">
         <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">
           SHA-256 hash signed
@@ -393,7 +532,7 @@ function SignaturePanel({ signature }: { signature: VerifiedSignature }) {
       {hasCrypto && (
         <div className="mt-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">
-            ECDSA signature
+            Signature bytes
           </p>
           <p className="mt-1 break-all rounded-xl bg-slate-50 p-3 font-mono text-[10px] text-gray-700 ring-1 ring-gray-200">
             {signature.signature_bytes}
@@ -401,5 +540,40 @@ function SignaturePanel({ signature }: { signature: VerifiedSignature }) {
         </div>
       )}
     </section>
+  );
+}
+
+function Field({
+  label,
+  value,
+  ok,
+  mono,
+  className,
+}: {
+  label: string;
+  value: React.ReactNode;
+  ok?: boolean;
+  mono?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">
+        {label}
+      </p>
+      <p
+        className={`mt-0.5 text-xs ${
+          mono ? "break-all font-mono" : ""
+        } ${
+          ok === true
+            ? "font-semibold text-green-800"
+            : ok === false
+              ? "font-semibold text-red-800"
+              : "text-gray-800"
+        }`}
+      >
+        {value}
+      </p>
+    </div>
   );
 }

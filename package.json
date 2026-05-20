@@ -12,6 +12,8 @@
     "prebuild": "node scripts/copy-pdf-worker.mjs"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.0",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.105.0",
     "next": "16.2.4",

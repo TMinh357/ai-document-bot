@@ -31,11 +31,80 @@ export default async function DocumentDetailPage({ params }: PageProps) {
 
   const { supabase, user, role } = await requireUser();
 
-  const { data: document } = await supabase
-    .from("documents")
-    .select("id, title, description, status, created_at, updated_at, owner_id, approved_hash")
-    .eq("id", id)
-    .single();
+  // Fetch everything that doesn't depend on anything else in parallel.
+  // RLS will return empty for unauthorised rows so this is safe to fan out.
+  const [
+    { data: currentProfile },
+    { data: document },
+    { data: assignedApprovals },
+    { data: versions },
+    { data: reviewers },
+    { data: approvals },
+    { data: latestAIResult },
+    { data: aiMessages },
+    { data: signatures },
+  ] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("webauthn_credential_id")
+      .eq("id", user.id)
+      .single(),
+    supabase
+      .from("documents")
+      .select(
+        "id, title, description, status, created_at, updated_at, owner_id, approved_hash"
+      )
+      .eq("id", id)
+      .single(),
+    supabase
+      .from("approvals")
+      .select("id")
+      .eq("document_id", id)
+      .eq("reviewer_id", user.id)
+      .limit(1),
+    supabase
+      .from("document_versions")
+      .select(
+        "id, version_no, file_path, content_text, created_at, created_by"
+      )
+      .eq("document_id", id)
+      .order("version_no", { ascending: false }),
+    supabase
+      .from("profiles")
+      .select("id, full_name, role")
+      .in("role", ["reviewer", "admin"])
+      .neq("id", user.id),
+    supabase
+      .from("approvals")
+      .select(
+        "id, reviewer_id, status, comment, round_no, due_at, created_at, reviewed_at"
+      )
+      .eq("document_id", id)
+      .order("round_no", { ascending: false })
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("document_ai_results")
+      .select("summary, key_points, risk_notes, created_at")
+      .eq("document_id", id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("document_ai_messages")
+      .select("id, question, answer, created_at")
+      .eq("document_id", id)
+      .order("created_at", { ascending: false })
+      .limit(10),
+    supabase
+      .from("document_signatures")
+      .select(
+        "id, signer_id, signature_hash, signature_bytes, algorithm, signed_at"
+      )
+      .eq("document_id", id)
+      .order("signed_at", { ascending: false }),
+  ]);
+
+  const webAuthnCredentialId = currentProfile?.webauthn_credential_id ?? null;
 
   if (!document) {
     redirect("/documents");
@@ -43,62 +112,26 @@ export default async function DocumentDetailPage({ params }: PageProps) {
 
   const isOwner = document.owner_id === user.id;
   const isAdmin = role === "admin";
-
-  const { data: assignedApprovals } = await supabase
-    .from("approvals")
-    .select("id")
-    .eq("document_id", id)
-    .eq("reviewer_id", user.id)
-    .limit(1);
-
   const isAssignedReviewer = !!(assignedApprovals && assignedApprovals.length > 0);
 
   if (!isOwner && !isAdmin && !isAssignedReviewer) {
     redirect("/documents");
   }
 
-  const { data: versions } = await supabase
-    .from("document_versions")
-    .select("id, version_no, file_path, content_text, created_at, created_by")
-    .eq("document_id", id)
-    .order("version_no", { ascending: false });
-
   const latestVersion = versions?.[0];
 
+  // Sign storage URLs for every version in parallel.
   const versionsWithUrls = await Promise.all(
     (versions || []).map(async (version) => {
       if (!version.file_path) {
-        return {
-          ...version,
-          signedUrl: null,
-        };
+        return { ...version, signedUrl: null };
       }
-
       const { data } = await supabase.storage
         .from("documents")
         .createSignedUrl(version.file_path, 60 * 10);
-
-      return {
-        ...version,
-        signedUrl: data?.signedUrl || null,
-      };
+      return { ...version, signedUrl: data?.signedUrl || null };
     })
   );
-
-  const { data: reviewers } = await supabase
-    .from("profiles")
-    .select("id, full_name, role")
-    .in("role", ["reviewer", "admin"])
-    .neq("id", user.id);
-
-  const { data: approvals } = await supabase
-    .from("approvals")
-    .select(
-      "id, reviewer_id, status, comment, round_no, due_at, created_at, reviewed_at"
-    )
-    .eq("document_id", id)
-    .order("round_no", { ascending: false })
-    .order("created_at", { ascending: false });
 
   const allApprovals = approvals || [];
   const currentRound = allApprovals.reduce(
@@ -121,27 +154,6 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     (a) => a.status === "rejected"
   ).length;
   const totalReviewers = currentRoundApprovals.length;
-
-  const { data: latestAIResult } = await supabase
-    .from("document_ai_results")
-    .select("summary, key_points, risk_notes, created_at")
-    .eq("document_id", id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const { data: aiMessages } = await supabase
-    .from("document_ai_messages")
-    .select("id, question, answer, created_at")
-    .eq("document_id", id)
-    .order("created_at", { ascending: false })
-    .limit(10);
-
-  const { data: signatures } = await supabase
-    .from("document_signatures")
-    .select("id, signer_id, signature_hash, signature_bytes, algorithm, signed_at")
-    .eq("document_id", id)
-    .order("signed_at", { ascending: false });
 
   const { data: rawHighlights } = latestVersion
     ? await supabase
@@ -516,6 +528,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
             reviewers={reviewers || []}
             latestVersionNo={latestVersion?.version_no ?? null}
             userId={user.id}
+            webAuthnCredentialId={webAuthnCredentialId}
           />
         )}
 
@@ -587,6 +600,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
             approvalId={currentApproval.id}
             documentId={document.id}
             userId={user.id}
+            webAuthnCredentialId={webAuthnCredentialId}
             approvedCount={approvedCount}
             totalCount={totalReviewers}
           />

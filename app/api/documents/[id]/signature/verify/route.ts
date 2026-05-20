@@ -1,11 +1,10 @@
 import { createHash } from "crypto";
 import { NextResponse } from "next/server";
+import { verifyAuthenticationResponse } from "@simplewebauthn/server";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { createClient } from "@/lib/supabase/server";
-import {
-  hexToBytes,
-  importPublicKeyJwk,
-  verifySignatureBytes,
-} from "@/lib/crypto/signing";
+import { getExpectedOrigin, getRpId } from "@/lib/webauthn/config";
+import { hexToBase64Url } from "@/lib/webauthn/verify";
 
 export const runtime = "nodejs";
 
@@ -26,6 +25,7 @@ type VerifiedSignature = {
   hashMatch: boolean;
   cryptoSignaturePresent: boolean;
   cryptoSignatureValid: boolean | null;
+  isWebAuthn: boolean;
 };
 
 export async function GET(_request: Request, context: RouteContext) {
@@ -43,11 +43,10 @@ export async function GET(_request: Request, context: RouteContext) {
     );
   }
 
-  // Pull every signature attached to this document (owner + all reviewers + legacy).
   const { data: signatures } = await supabase
     .from("document_signatures")
     .select(
-      "id, signer_id, signature_hash, signature_bytes, algorithm, signature_role, round_no, signed_at"
+      "id, signer_id, signature_hash, signature_bytes, client_data_json, authenticator_data, credential_id, algorithm, signature_role, round_no, signed_at"
     )
     .eq("document_id", id)
     .order("signed_at", { ascending: true });
@@ -59,9 +58,10 @@ export async function GET(_request: Request, context: RouteContext) {
     );
   }
 
+  // Compute current file hash.
   const { data: version } = await supabase
     .from("document_versions")
-    .select("id, file_path")
+    .select("file_path")
     .eq("document_id", id)
     .order("version_no", { ascending: false })
     .limit(1)
@@ -76,33 +76,31 @@ export async function GET(_request: Request, context: RouteContext) {
     const { data: signedUrlData } = await supabase.storage
       .from("documents")
       .createSignedUrl(version.file_path, 60);
-
     if (!signedUrlData?.signedUrl) {
       fileMissing = true;
     } else {
-      const fileResponse = await fetch(signedUrlData.signedUrl);
-      if (!fileResponse.ok) {
+      const r = await fetch(signedUrlData.signedUrl);
+      if (!r.ok) {
         fileMissing = true;
       } else {
         currentHash = createHash("sha256")
-          .update(Buffer.from(await fileResponse.arrayBuffer()))
+          .update(Buffer.from(await r.arrayBuffer()))
           .digest("hex");
       }
     }
   }
 
-  // Look up signer names + public keys in one shot.
+  // Fetch all signer profiles in one shot.
   const signerIds = Array.from(new Set(signatures.map((s) => s.signer_id)));
   const { data: signerProfiles } = await supabase
     .from("profiles")
-    .select("id, full_name, public_key")
+    .select(
+      "id, full_name, webauthn_credential_id, webauthn_public_key, webauthn_transports"
+    )
     .in("id", signerIds);
 
   const profileMap = new Map(
-    (signerProfiles ?? []).map((p) => [
-      p.id,
-      { name: p.full_name as string | null, publicKey: p.public_key as string | null },
-    ])
+    (signerProfiles ?? []).map((p) => [p.id, p])
   );
 
   const verified: VerifiedSignature[] = [];
@@ -110,17 +108,45 @@ export async function GET(_request: Request, context: RouteContext) {
   for (const sig of signatures) {
     const profile = profileMap.get(sig.signer_id);
     const hashMatch = currentHash !== null && sig.signature_hash === currentHash;
+    const isWebAuthn = Boolean(sig.client_data_json && sig.authenticator_data);
 
     let cryptoSignatureValid: boolean | null = null;
-    if (sig.signature_bytes) {
-      if (profile?.publicKey) {
+
+    if (isWebAuthn && sig.signature_bytes) {
+      if (profile?.webauthn_credential_id && profile?.webauthn_public_key) {
+        // Reconstruct the AuthenticationResponseJSON from stored fields and verify.
+        const reconstructed: AuthenticationResponseJSON = {
+          id: sig.credential_id ?? profile.webauthn_credential_id,
+          rawId: sig.credential_id ?? profile.webauthn_credential_id,
+          type: "public-key",
+          response: {
+            clientDataJSON: sig.client_data_json!,
+            authenticatorData: sig.authenticator_data!,
+            signature: sig.signature_bytes,
+          },
+          clientExtensionResults: {},
+        };
+
         try {
-          const publicKey = await importPublicKeyJwk(profile.publicKey);
-          cryptoSignatureValid = await verifySignatureBytes(
-            publicKey,
-            sig.signature_bytes,
-            hexToBytes(sig.signature_hash)
-          );
+          const result = await verifyAuthenticationResponse({
+            response: reconstructed,
+            expectedChallenge: hexToBase64Url(sig.signature_hash),
+            expectedOrigin: getExpectedOrigin(),
+            expectedRPID: getRpId(),
+            requireUserVerification: true,
+            credential: {
+              id: profile.webauthn_credential_id,
+              publicKey: new Uint8Array(
+                Buffer.from(profile.webauthn_public_key, "base64")
+              ),
+              counter: 0, // bypass replay-counter check for stored signatures
+              transports:
+                (profile.webauthn_transports as
+                  | AuthenticatorTransport[]
+                  | null) ?? undefined,
+            },
+          });
+          cryptoSignatureValid = result.verified;
         } catch {
           cryptoSignatureValid = false;
         }
@@ -132,7 +158,7 @@ export async function GET(_request: Request, context: RouteContext) {
     verified.push({
       id: sig.id,
       signerId: sig.signer_id,
-      signerName: profile?.name ?? null,
+      signerName: profile?.full_name ?? null,
       signatureRole: sig.signature_role,
       algorithm: sig.algorithm ?? "SHA-256",
       signedAt: sig.signed_at,
@@ -140,6 +166,7 @@ export async function GET(_request: Request, context: RouteContext) {
       hashMatch,
       cryptoSignaturePresent: Boolean(sig.signature_bytes),
       cryptoSignatureValid,
+      isWebAuthn,
     });
   }
 
@@ -165,3 +192,12 @@ export async function GET(_request: Request, context: RouteContext) {
     signatures: verified,
   });
 }
+
+type AuthenticatorTransport =
+  | "ble"
+  | "cable"
+  | "hybrid"
+  | "internal"
+  | "nfc"
+  | "smart-card"
+  | "usb";

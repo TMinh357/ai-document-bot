@@ -4,16 +4,15 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import SigningKeySetup from "./SigningKeySetup";
 import {
-  hexToBytes,
-  importPrivateKeyJwk,
-  signHashBytes,
-} from "@/lib/crypto/signing";
-import { loadKeyRecord } from "@/lib/crypto/key-storage";
+  getClientRpId,
+  signFileHashWithWebAuthn,
+} from "@/lib/webauthn/client";
 
 type ReviewActionsProps = {
   approvalId: string;
   documentId: string;
   userId: string;
+  webAuthnCredentialId: string | null;
   approvedCount: number;
   totalCount: number;
 };
@@ -22,19 +21,38 @@ export default function ReviewActions({
   approvalId,
   documentId,
   userId,
+  webAuthnCredentialId,
   approvedCount,
   totalCount,
 }: ReviewActionsProps) {
   const router = useRouter();
 
+  type Phase =
+    | "idle"
+    | "fetching-hash"
+    | "awaiting-windows-hello"
+    | "submitting";
+
   const [comment, setComment] = useState("");
   const [message, setMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [showKeySetup, setShowKeySetup] = useState(false);
+  const [credentialId, setCredentialId] = useState<string | null>(
+    webAuthnCredentialId
+  );
 
-  async function approveWithKey(privateKeyJwk: string) {
-    setIsLoading(true);
+  const isLoading = phase !== "idle";
+
+  const phaseLabel: Record<Phase, string> = {
+    idle: "",
+    "fetching-hash": "Computing file fingerprint...",
+    "awaiting-windows-hello": "Waiting for Windows Hello...",
+    submitting: "Submitting decision...",
+  };
+
+  async function approveWithCredential(credId: string) {
     try {
+      setPhase("fetching-hash");
       const hashResponse = await fetch(
         `/api/documents/${documentId}/file-hash`
       );
@@ -43,19 +61,21 @@ export default function ReviewActions({
         throw new Error(hashData.error || "Failed to fetch file hash.");
       }
 
-      const privateKey = await importPrivateKeyJwk(privateKeyJwk);
-      const signatureBytes = await signHashBytes(
-        privateKey,
-        hexToBytes(hashData.hash)
-      );
+      setPhase("awaiting-windows-hello");
+      const assertion = await signFileHashWithWebAuthn({
+        fileHashHex: hashData.hash,
+        credentialId: credId,
+        rpId: getClientRpId(),
+      });
 
+      setPhase("submitting");
       const response = await fetch(`/api/approvals/${approvalId}/decide`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           status: "approved",
           comment,
-          signatureBytes,
+          assertion,
         }),
       });
 
@@ -70,36 +90,23 @@ export default function ReviewActions({
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Approval failed.");
     } finally {
-      setIsLoading(false);
+      setPhase("idle");
     }
   }
 
   async function handleApprove() {
     setMessage("");
-    let record;
-    try {
-      record = await loadKeyRecord(userId);
-    } catch (err) {
-      setMessage(
-        err instanceof Error
-          ? err.message
-          : "Could not access your signing key."
-      );
-      return;
-    }
-    if (!record) {
+    if (!credentialId) {
       setShowKeySetup(true);
       return;
     }
-    await approveWithKey(record.privateKeyJwk);
+    await approveWithCredential(credentialId);
   }
 
-  async function handleKeyReady() {
+  async function handleKeyReady(newCredentialId: string) {
     setShowKeySetup(false);
-    const record = await loadKeyRecord(userId);
-    if (record) {
-      await approveWithKey(record.privateKeyJwk);
-    }
+    setCredentialId(newCredentialId);
+    await approveWithCredential(newCredentialId);
   }
 
   async function handleReject() {
@@ -110,7 +117,7 @@ export default function ReviewActions({
       return;
     }
 
-    setIsLoading(true);
+    setPhase("submitting");
 
     const response = await fetch(`/api/approvals/${approvalId}/decide`, {
       method: "POST",
@@ -122,7 +129,7 @@ export default function ReviewActions({
 
     if (!response.ok) {
       setMessage(result?.error || "Failed to record your decision.");
-      setIsLoading(false);
+      setPhase("idle");
       return;
     }
 
@@ -144,10 +151,11 @@ export default function ReviewActions({
       <h2 className="text-2xl font-semibold text-gray-900">Review Decision</h2>
 
       <p className="muted-copy mt-2 text-sm">
-        Approving requires your digital signature: you will sign the current
-        file hash with your private key. The document is approved only after
-        all {totalCount} reviewer{totalCount === 1 ? "" : "s"} approve and
-        sign; a single rejection ends the round.
+        Approving requires <strong>Windows Hello</strong> authentication: you
+        will sign the current file&apos;s hash with your device-bound private
+        key. The document is approved only after all {totalCount} reviewer
+        {totalCount === 1 ? "" : "s"} approve and sign; a single rejection ends
+        the round.
       </p>
 
       <p className="mt-2 inline-flex items-center rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800">
@@ -179,7 +187,7 @@ export default function ReviewActions({
           onClick={handleApprove}
           className="button-success disabled:opacity-60"
         >
-          {isLoading ? "Signing..." : "Sign and Approve"}
+          {isLoading ? phaseLabel[phase] : "Sign and Approve"}
         </button>
 
         <button

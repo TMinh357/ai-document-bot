@@ -1,14 +1,10 @@
-import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendReviewAssignedEmail } from "@/lib/email";
-import {
-  ALGORITHM_LABEL,
-  hexToBytes,
-  importPublicKeyJwk,
-  verifySignatureBytes,
-} from "@/lib/crypto/signing";
+import { verifyWebAuthnSignature } from "@/lib/webauthn/verify";
+import { getOrComputeLatestVersionHash } from "@/lib/document-hash";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 
 export const runtime = "nodejs";
 
@@ -39,14 +35,13 @@ export async function POST(request: Request, context: RouteContext) {
     const reviewerIdsRaw = Array.isArray(body?.reviewerIds)
       ? body.reviewerIds
       : [];
-    const signatureBytes =
-      typeof body?.signatureBytes === "string" ? body.signatureBytes : null;
+    const assertion = body?.assertion as AuthenticationResponseJSON | undefined;
 
-    if (!signatureBytes) {
+    if (!assertion || typeof assertion !== "object") {
       return NextResponse.json(
         {
           error:
-            "Submission must include the owner's digital signature. Please set up your signing key and try again.",
+            "Submission must include a WebAuthn assertion. Please authenticate with Windows Hello and try again.",
         },
         { status: 400 }
       );
@@ -144,86 +139,60 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    // Verify the owner's signature against the current file hash.
+    // Look up the owner's registered WebAuthn credential.
     const { data: ownerProfile } = await admin
       .from("profiles")
-      .select("public_key")
+      .select(
+        "webauthn_credential_id, webauthn_public_key, webauthn_counter, webauthn_transports"
+      )
       .eq("id", user.id)
       .single();
 
-    if (!ownerProfile?.public_key) {
+    if (
+      !ownerProfile?.webauthn_credential_id ||
+      !ownerProfile?.webauthn_public_key
+    ) {
       return NextResponse.json(
         {
           error:
-            "No public key is registered for your account. Open the submit form again to set up a signing key.",
+            "No WebAuthn credential is registered for your account. Set up Windows Hello signing and try again.",
         },
         { status: 400 }
       );
     }
 
-    const { data: latestVersion } = await admin
-      .from("document_versions")
-      .select("id, file_path")
-      .eq("document_id", documentId)
-      .order("version_no", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (!latestVersion?.file_path) {
+    const hashResult = await getOrComputeLatestVersionHash(admin, documentId);
+    if (!hashResult.ok) {
       return NextResponse.json(
-        { error: "No uploaded file was found for this document." },
-        { status: 404 }
+        { error: hashResult.error },
+        { status: hashResult.status }
       );
     }
+    const fileHash = hashResult.data.hash;
 
-    const { data: signedUrlData, error: signedUrlError } = await admin.storage
-      .from("documents")
-      .createSignedUrl(latestVersion.file_path, 60);
+    const verifyResult = await verifyWebAuthnSignature({
+      assertion,
+      expectedFileHashHex: fileHash,
+      storedCredential: {
+        credentialId: ownerProfile.webauthn_credential_id,
+        publicKeyB64: ownerProfile.webauthn_public_key,
+        counter: ownerProfile.webauthn_counter ?? 0,
+        transports: ownerProfile.webauthn_transports,
+      },
+    });
 
-    if (signedUrlError || !signedUrlData?.signedUrl) {
+    if (!verifyResult.ok) {
       return NextResponse.json(
-        { error: "Failed to access the file for signing verification." },
-        { status: 500 }
-      );
-    }
-
-    const fileResponse = await fetch(signedUrlData.signedUrl);
-    if (!fileResponse.ok) {
-      return NextResponse.json(
-        { error: "Failed to download the file for signing verification." },
-        { status: 500 }
-      );
-    }
-
-    const arrayBuffer = await fileResponse.arrayBuffer();
-    const fileHash = createHash("sha256")
-      .update(Buffer.from(arrayBuffer))
-      .digest("hex");
-
-    try {
-      const publicKey = await importPublicKeyJwk(ownerProfile.public_key);
-      const hashBytes = hexToBytes(fileHash);
-      const valid = await verifySignatureBytes(
-        publicKey,
-        signatureBytes,
-        hashBytes
-      );
-
-      if (!valid) {
-        return NextResponse.json(
-          {
-            error:
-              "Owner signature verification failed. The signature does not match your public key for the current file.",
-          },
-          { status: 400 }
-        );
-      }
-    } catch {
-      return NextResponse.json(
-        { error: "Could not verify the supplied owner signature." },
+        { error: `Owner signature verification failed: ${verifyResult.error}` },
         { status: 400 }
       );
     }
+
+    // Update the sign counter so a cloned authenticator's replayed signature is rejected next time.
+    await admin
+      .from("profiles")
+      .update({ webauthn_counter: verifyResult.newCounter })
+      .eq("id", user.id);
 
     const { data: previousRound } = await admin
       .from("approvals")
@@ -241,8 +210,11 @@ export async function POST(request: Request, context: RouteContext) {
         document_id: documentId,
         signer_id: user.id,
         signature_hash: fileHash,
-        signature_bytes: signatureBytes,
-        algorithm: ALGORITHM_LABEL,
+        signature_bytes: assertion.response.signature,
+        client_data_json: assertion.response.clientDataJSON,
+        authenticator_data: assertion.response.authenticatorData,
+        credential_id: assertion.id,
+        algorithm: "WebAuthn-ES256",
         signature_role: "owner_submission",
         round_no: nextRound,
       });
@@ -314,7 +286,8 @@ export async function POST(request: Request, context: RouteContext) {
       }))
     );
 
-    await Promise.allSettled(
+    // Fire-and-forget email sends — never block the response on Brevo's latency.
+    void Promise.allSettled(
       reviewerIds.map((reviewerId) =>
         sendReviewAssignedEmail({
           reviewerId,

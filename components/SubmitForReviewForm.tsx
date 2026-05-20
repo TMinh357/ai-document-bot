@@ -4,11 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import SigningKeySetup from "./SigningKeySetup";
 import {
-  hexToBytes,
-  importPrivateKeyJwk,
-  signHashBytes,
-} from "@/lib/crypto/signing";
-import { loadKeyRecord } from "@/lib/crypto/key-storage";
+  getClientRpId,
+  signFileHashWithWebAuthn,
+} from "@/lib/webauthn/client";
 
 type Reviewer = {
   id: string;
@@ -22,6 +20,7 @@ type SubmitForReviewFormProps = {
   reviewers: Reviewer[];
   latestVersionNo: number | null;
   userId: string;
+  webAuthnCredentialId: string | null;
 };
 
 export default function SubmitForReviewForm({
@@ -30,16 +29,34 @@ export default function SubmitForReviewForm({
   reviewers,
   latestVersionNo,
   userId,
+  webAuthnCredentialId,
 }: SubmitForReviewFormProps) {
   const router = useRouter();
+
+  type Phase =
+    | "idle"
+    | "fetching-hash"
+    | "awaiting-windows-hello"
+    | "submitting";
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [dueInDays, setDueInDays] = useState(7);
   const [filterText, setFilterText] = useState("");
   const [message, setMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [showKeySetup, setShowKeySetup] = useState(false);
-  const [pendingReviewerIds, setPendingReviewerIds] = useState<string[]>([]);
+  const [credentialId, setCredentialId] = useState<string | null>(
+    webAuthnCredentialId
+  );
+
+  const isLoading = phase !== "idle";
+
+  const phaseLabel: Record<Phase, string> = {
+    idle: "",
+    "fetching-hash": "Computing file fingerprint...",
+    "awaiting-windows-hello": "Waiting for Windows Hello...",
+    submitting: "Submitting...",
+  };
 
   if (currentStatus !== "draft") {
     return null;
@@ -57,10 +74,12 @@ export default function SubmitForReviewForm({
     });
   }
 
-  async function submitWithKey(reviewerIds: string[], privateKeyJwk: string) {
-    setIsLoading(true);
+  async function submitWithCredential(
+    reviewerIds: string[],
+    credId: string
+  ) {
     try {
-      // Get the SHA-256 hash of the latest file from the server.
+      setPhase("fetching-hash");
       const hashResponse = await fetch(
         `/api/documents/${documentId}/file-hash`
       );
@@ -69,20 +88,21 @@ export default function SubmitForReviewForm({
         throw new Error(hashData.error || "Failed to fetch file hash.");
       }
 
-      // Sign the hash with the owner's private key.
-      const privateKey = await importPrivateKeyJwk(privateKeyJwk);
-      const signatureBytes = await signHashBytes(
-        privateKey,
-        hexToBytes(hashData.hash)
-      );
+      setPhase("awaiting-windows-hello");
+      const assertion = await signFileHashWithWebAuthn({
+        fileHashHex: hashData.hash,
+        credentialId: credId,
+        rpId: getClientRpId(),
+      });
 
+      setPhase("submitting");
       const response = await fetch(`/api/documents/${documentId}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           reviewerIds,
           dueInDays,
-          signatureBytes,
+          assertion,
         }),
       });
 
@@ -97,7 +117,7 @@ export default function SubmitForReviewForm({
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Submission failed.");
     } finally {
-      setIsLoading(false);
+      setPhase("idle");
     }
   }
 
@@ -112,35 +132,22 @@ export default function SubmitForReviewForm({
       return;
     }
 
-    // Check for an existing private key in this browser.
-    let record;
-    try {
-      record = await loadKeyRecord(userId);
-    } catch (err) {
-      setMessage(
-        err instanceof Error
-          ? err.message
-          : "Could not access your signing key."
-      );
-      return;
-    }
-
-    if (!record) {
-      // No key yet — open the JIT setup modal and resume after it completes.
-      setPendingReviewerIds(reviewerIds);
+    if (!credentialId) {
+      // No registered credential — open Windows Hello setup first.
       setShowKeySetup(true);
       return;
     }
 
-    await submitWithKey(reviewerIds, record.privateKeyJwk);
+    await submitWithCredential(reviewerIds, credentialId);
   }
 
-  async function handleKeyReady() {
+  async function handleKeyReady(newCredentialId: string) {
     setShowKeySetup(false);
-    const record = await loadKeyRecord(userId);
-    if (record && pendingReviewerIds.length > 0) {
-      await submitWithKey(pendingReviewerIds, record.privateKeyJwk);
-      setPendingReviewerIds([]);
+    setCredentialId(newCredentialId);
+
+    const reviewerIds = Array.from(selectedIds);
+    if (reviewerIds.length > 0) {
+      await submitWithCredential(reviewerIds, newCredentialId);
     }
   }
 
@@ -150,10 +157,7 @@ export default function SubmitForReviewForm({
         <SigningKeySetup
           userId={userId}
           onReady={handleKeyReady}
-          onCancel={() => {
-            setShowKeySetup(false);
-            setPendingReviewerIds([]);
-          }}
+          onCancel={() => setShowKeySetup(false)}
         />
       )}
 
@@ -162,11 +166,11 @@ export default function SubmitForReviewForm({
       </h2>
 
       <p className="muted-copy mt-2 text-sm">
-        Select one or more reviewers. Submission requires your digital
-        signature: the document will be signed with your private key as
-        confirmation that you are the author. The document will be approved only
-        when every selected reviewer approves and signs; a single rejection ends
-        this round.
+        Select one or more reviewers. Submission requires your{" "}
+        <strong>Windows Hello</strong> authentication: you will be prompted to
+        sign the file with your device-bound private key. The document is
+        approved only when every selected reviewer also signs their approval;
+        a single rejection ends this round.
       </p>
 
       {latestVersionNo !== null && (
@@ -274,8 +278,8 @@ export default function SubmitForReviewForm({
             className="button-primary disabled:opacity-60"
           >
             {isLoading
-              ? "Signing and submitting..."
-              : `Sign and Submit (${selectedIds.size} reviewer${selectedIds.size === 1 ? "" : "s"})`}
+              ? phaseLabel[phase]
+              : `Sign with Windows Hello and Submit (${selectedIds.size} reviewer${selectedIds.size === 1 ? "" : "s"})`}
           </button>
         </form>
       )}

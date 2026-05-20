@@ -1,4 +1,3 @@
-import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -7,12 +6,9 @@ import {
   sendDocumentRejectedEmail,
   sendReviewProgressEmail,
 } from "@/lib/email";
-import {
-  ALGORITHM_LABEL,
-  hexToBytes,
-  importPublicKeyJwk,
-  verifySignatureBytes,
-} from "@/lib/crypto/signing";
+import { verifyWebAuthnSignature } from "@/lib/webauthn/verify";
+import { getOrComputeLatestVersionHash } from "@/lib/document-hash";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 
 export const runtime = "nodejs";
 
@@ -44,8 +40,9 @@ export async function POST(request: Request, context: RouteContext) {
       typeof body?.status === "string" ? body.status : "";
     const comment =
       typeof body?.comment === "string" ? body.comment.trim() : "";
-    const signatureBytes =
-      typeof body?.signatureBytes === "string" ? body.signatureBytes : null;
+    const assertion = body?.assertion as
+      | AuthenticationResponseJSON
+      | undefined;
 
     if (decision !== "approved" && decision !== "rejected") {
       return NextResponse.json(
@@ -61,11 +58,11 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    if (decision === "approved" && !signatureBytes) {
+    if (decision === "approved" && (!assertion || typeof assertion !== "object")) {
       return NextResponse.json(
         {
           error:
-            "Approval must include the reviewer's digital signature. Please set up your signing key and try again.",
+            "Approval must include a WebAuthn assertion. Please authenticate with Windows Hello and try again.",
         },
         { status: 400 }
       );
@@ -142,86 +139,66 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    // If approving, verify the reviewer's signature against the current file hash.
+    // If approving, verify the reviewer's WebAuthn assertion against the current file hash.
     let reviewerFileHash: string | null = null;
-    if (decision === "approved") {
+    if (decision === "approved" && assertion) {
       const { data: reviewerProfile } = await admin
         .from("profiles")
-        .select("public_key")
+        .select(
+          "webauthn_credential_id, webauthn_public_key, webauthn_counter, webauthn_transports"
+        )
         .eq("id", user.id)
         .single();
 
-      if (!reviewerProfile?.public_key) {
+      if (
+        !reviewerProfile?.webauthn_credential_id ||
+        !reviewerProfile?.webauthn_public_key
+      ) {
         return NextResponse.json(
           {
             error:
-              "No public key is registered for your account. Open the review form again to set up a signing key.",
+              "No WebAuthn credential is registered for your account. Set up Windows Hello signing and try again.",
           },
           { status: 400 }
         );
       }
 
-      const { data: latestVersion } = await admin
-        .from("document_versions")
-        .select("file_path")
-        .eq("document_id", approval.document_id)
-        .order("version_no", { ascending: false })
-        .limit(1)
-        .single();
-
-      if (!latestVersion?.file_path) {
+      const hashResult = await getOrComputeLatestVersionHash(
+        admin,
+        approval.document_id
+      );
+      if (!hashResult.ok) {
         return NextResponse.json(
-          { error: "No uploaded file was found for this document." },
-          { status: 404 }
+          { error: hashResult.error },
+          { status: hashResult.status }
         );
       }
+      reviewerFileHash = hashResult.data.hash;
 
-      const { data: signedUrlData, error: signedUrlError } = await admin.storage
-        .from("documents")
-        .createSignedUrl(latestVersion.file_path, 60);
+      const verifyResult = await verifyWebAuthnSignature({
+        assertion,
+        expectedFileHashHex: reviewerFileHash,
+        storedCredential: {
+          credentialId: reviewerProfile.webauthn_credential_id,
+          publicKeyB64: reviewerProfile.webauthn_public_key,
+          counter: reviewerProfile.webauthn_counter ?? 0,
+          transports: reviewerProfile.webauthn_transports,
+        },
+      });
 
-      if (signedUrlError || !signedUrlData?.signedUrl) {
+      if (!verifyResult.ok) {
         return NextResponse.json(
-          { error: "Failed to access the file for signing verification." },
-          { status: 500 }
-        );
-      }
-
-      const fileResponse = await fetch(signedUrlData.signedUrl);
-      if (!fileResponse.ok) {
-        return NextResponse.json(
-          { error: "Failed to download the file for signing verification." },
-          { status: 500 }
-        );
-      }
-
-      reviewerFileHash = createHash("sha256")
-        .update(Buffer.from(await fileResponse.arrayBuffer()))
-        .digest("hex");
-
-      try {
-        const publicKey = await importPublicKeyJwk(reviewerProfile.public_key);
-        const valid = await verifySignatureBytes(
-          publicKey,
-          signatureBytes as string,
-          hexToBytes(reviewerFileHash)
-        );
-
-        if (!valid) {
-          return NextResponse.json(
-            {
-              error:
-                "Reviewer signature verification failed. The signature does not match your public key for the current file.",
-            },
-            { status: 400 }
-          );
-        }
-      } catch {
-        return NextResponse.json(
-          { error: "Could not verify the supplied reviewer signature." },
+          {
+            error: `Reviewer signature verification failed: ${verifyResult.error}`,
+          },
           { status: 400 }
         );
       }
+
+      await admin
+        .from("profiles")
+        .update({ webauthn_counter: verifyResult.newCounter })
+        .eq("id", user.id);
     }
 
     const { error: updateError } = await admin
@@ -241,15 +218,18 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     // Record the reviewer's cryptographic signature alongside the approval.
-    if (decision === "approved" && reviewerFileHash && signatureBytes) {
+    if (decision === "approved" && reviewerFileHash && assertion) {
       const { error: reviewerSigError } = await admin
         .from("document_signatures")
         .insert({
           document_id: approval.document_id,
           signer_id: user.id,
           signature_hash: reviewerFileHash,
-          signature_bytes: signatureBytes,
-          algorithm: ALGORITHM_LABEL,
+          signature_bytes: assertion.response.signature,
+          client_data_json: assertion.response.clientDataJSON,
+          authenticator_data: assertion.response.authenticatorData,
+          credential_id: assertion.id,
+          algorithm: "WebAuthn-ES256",
           signature_role: "reviewer_approval",
           round_no: currentRound,
         });
@@ -286,34 +266,10 @@ export async function POST(request: Request, context: RouteContext) {
     if (nextDocStatus !== "pending") {
       // When unanimously approved, snapshot the file hash so the sign route
       // can detect any tampering that happens before the owner clicks Sign.
-      let approvedHash: string | null = null;
-      if (nextDocStatus === "approved") {
-        try {
-          const { data: version } = await admin
-            .from("document_versions")
-            .select("file_path")
-            .eq("document_id", document.id)
-            .order("version_no", { ascending: false })
-            .limit(1)
-            .single();
-
-          if (version?.file_path) {
-            const { data: signedUrlData } = await admin.storage
-              .from("documents")
-              .createSignedUrl(version.file_path, 60);
-
-            if (signedUrlData?.signedUrl) {
-              const fileResp = await fetch(signedUrlData.signedUrl);
-              if (fileResp.ok) {
-                const buf = Buffer.from(await fileResp.arrayBuffer());
-                approvedHash = createHash("sha256").update(buf).digest("hex");
-              }
-            }
-          }
-        } catch {
-          // Non-fatal: approval proceeds; sign route will still verify at sign time
-        }
-      }
+      // When unanimously approved, snapshot the file hash. We already
+      // computed it above when verifying the reviewer's signature, so reuse.
+      const approvedHash =
+        nextDocStatus === "approved" ? reviewerFileHash : null;
 
       const docUpdate: Record<string, unknown> = {
         status: nextDocStatus,
@@ -355,6 +311,7 @@ export async function POST(request: Request, context: RouteContext) {
       },
     });
 
+    // Notification rows are awaited (small, fast). Emails are fire-and-forget.
     if (decision === "rejected") {
       await admin.from("notifications").insert({
         user_id: document.owner_id,
@@ -363,7 +320,7 @@ export async function POST(request: Request, context: RouteContext) {
         message: `Your document "${document.title}" was rejected${comment ? `: ${comment}` : "."}`,
         document_id: document.id,
       });
-      await sendDocumentRejectedEmail({
+      void sendDocumentRejectedEmail({
         ownerId: document.owner_id,
         documentId: document.id,
         documentTitle: document.title,
@@ -377,7 +334,7 @@ export async function POST(request: Request, context: RouteContext) {
         message: `Your document "${document.title}" has been approved by all ${totalCount} reviewer${totalCount === 1 ? "" : "s"}.`,
         document_id: document.id,
       });
-      await sendDocumentApprovedEmail({
+      void sendDocumentApprovedEmail({
         ownerId: document.owner_id,
         documentId: document.id,
         documentTitle: document.title,
@@ -391,7 +348,7 @@ export async function POST(request: Request, context: RouteContext) {
         message: `"${document.title}" — ${approvedCount} of ${totalCount} reviewers have approved.`,
         document_id: document.id,
       });
-      await sendReviewProgressEmail({
+      void sendReviewProgressEmail({
         ownerId: document.owner_id,
         documentId: document.id,
         documentTitle: document.title,
