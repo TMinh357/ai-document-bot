@@ -37,39 +37,48 @@ export async function fireOverdueReminders(reviewerId: string): Promise<void> {
   }
 
   const now = new Date();
+  const nowIsoFinal = now.toISOString();
 
-  for (const row of overdueRows as OverdueRow[]) {
-    const document = Array.isArray(row.documents)
-      ? row.documents[0]
-      : row.documents;
+  // Process all overdue rows in parallel. Within each row, the notification
+  // insert and approval update are awaited (small + fast), but the Brevo email
+  // is fire-and-forget so it never blocks the response.
+  await Promise.all(
+    (overdueRows as OverdueRow[]).map(async (row) => {
+      const document = Array.isArray(row.documents)
+        ? row.documents[0]
+        : row.documents;
 
-    const title = document?.title || "(untitled)";
-    const dueAt = row.due_at ? new Date(row.due_at) : null;
-    const overdueDays = dueAt
-      ? Math.max(
-          1,
-          Math.floor((now.getTime() - dueAt.getTime()) / (24 * 60 * 60 * 1000))
-        )
-      : 0;
+      const title = document?.title || "(untitled)";
+      const dueAt = row.due_at ? new Date(row.due_at) : null;
+      const overdueDays = dueAt
+        ? Math.max(
+            1,
+            Math.floor((now.getTime() - dueAt.getTime()) / (24 * 60 * 60 * 1000))
+          )
+        : 0;
 
-    await admin.from("notifications").insert({
-      user_id: reviewerId,
-      type: "review_overdue",
-      title: "Review Overdue",
-      message: `Your review of "${title}" is overdue by ${overdueDays} day${overdueDays === 1 ? "" : "s"}. Please complete it as soon as possible.`,
-      document_id: row.document_id,
-    });
+      // Fire-and-forget email — never block on Brevo latency.
+      void sendReviewOverdueEmail({
+        reviewerId,
+        documentId: row.document_id,
+        documentTitle: title,
+        overdueDays,
+      });
 
-    await sendReviewOverdueEmail({
-      reviewerId,
-      documentId: row.document_id,
-      documentTitle: title,
-      overdueDays,
-    });
-
-    await admin
-      .from("approvals")
-      .update({ last_reminded_at: now.toISOString() })
-      .eq("id", row.id);
-  }
+      // Notification + counter update in parallel.
+      await Promise.all([
+        admin.from("notifications").insert({
+          user_id: reviewerId,
+          type: "review_overdue",
+          title: "Review Overdue",
+          message: `Your review of "${title}" is overdue by ${overdueDays} day${overdueDays === 1 ? "" : "s"}. Please complete it as soon as possible.`,
+          document_id: row.document_id,
+        }),
+        admin
+          .from("approvals")
+          .update({ last_reminded_at: nowIsoFinal })
+          .eq("id", row.id),
+      ]);
+    })
+  );
 }

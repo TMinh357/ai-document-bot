@@ -15,7 +15,8 @@ export default async function ReviewsPage() {
     "admin",
   ]);
 
-  await fireOverdueReminders(user.id);
+  // Fire-and-forget — reminders are side effects, the page doesn't need to wait.
+  void fireOverdueReminders(user.id);
 
   const { data: approvals } = await supabase
     .from("approvals")

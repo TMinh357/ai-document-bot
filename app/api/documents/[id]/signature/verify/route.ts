@@ -103,74 +103,79 @@ export async function GET(_request: Request, context: RouteContext) {
     (signerProfiles ?? []).map((p) => [p.id, p])
   );
 
-  const verified: VerifiedSignature[] = [];
+  // Verify every signature in parallel — each WebAuthn verification involves
+  // CBOR parsing + COSE key import + ECDSA verify (~100–200ms). Serializing
+  // them across N signatures adds N × that cost; Promise.all collapses it to
+  // max(single).
+  const verified: VerifiedSignature[] = await Promise.all(
+    signatures.map(async (sig) => {
+      const profile = profileMap.get(sig.signer_id);
+      const hashMatch =
+        currentHash !== null && sig.signature_hash === currentHash;
+      const isWebAuthn = Boolean(sig.client_data_json && sig.authenticator_data);
 
-  for (const sig of signatures) {
-    const profile = profileMap.get(sig.signer_id);
-    const hashMatch = currentHash !== null && sig.signature_hash === currentHash;
-    const isWebAuthn = Boolean(sig.client_data_json && sig.authenticator_data);
+      let cryptoSignatureValid: boolean | null = null;
 
-    let cryptoSignatureValid: boolean | null = null;
-
-    if (isWebAuthn && sig.signature_bytes) {
-      if (profile?.webauthn_credential_id && profile?.webauthn_public_key) {
-        // Reconstruct the AuthenticationResponseJSON from stored fields and verify.
-        const reconstructed: AuthenticationResponseJSON = {
-          id: sig.credential_id ?? profile.webauthn_credential_id,
-          rawId: sig.credential_id ?? profile.webauthn_credential_id,
-          type: "public-key",
-          response: {
-            clientDataJSON: sig.client_data_json!,
-            authenticatorData: sig.authenticator_data!,
-            signature: sig.signature_bytes,
-          },
-          clientExtensionResults: {},
-        };
-
-        try {
-          const result = await verifyAuthenticationResponse({
-            response: reconstructed,
-            expectedChallenge: hexToBase64Url(sig.signature_hash),
-            expectedOrigin: getExpectedOrigin(),
-            expectedRPID: getRpId(),
-            requireUserVerification: true,
-            credential: {
-              id: profile.webauthn_credential_id,
-              publicKey: new Uint8Array(
-                Buffer.from(profile.webauthn_public_key, "base64")
-              ),
-              counter: 0, // bypass replay-counter check for stored signatures
-              transports:
-                (profile.webauthn_transports as
-                  | AuthenticatorTransport[]
-                  | null) ?? undefined,
+      if (isWebAuthn && sig.signature_bytes) {
+        if (profile?.webauthn_credential_id && profile?.webauthn_public_key) {
+          const reconstructed: AuthenticationResponseJSON = {
+            id: sig.credential_id ?? profile.webauthn_credential_id,
+            rawId: sig.credential_id ?? profile.webauthn_credential_id,
+            type: "public-key",
+            response: {
+              clientDataJSON: sig.client_data_json!,
+              authenticatorData: sig.authenticator_data!,
+              signature: sig.signature_bytes,
             },
-          });
-          cryptoSignatureValid = result.verified;
-        } catch {
+            clientExtensionResults: {},
+          };
+
+          try {
+            const result = await verifyAuthenticationResponse({
+              response: reconstructed,
+              expectedChallenge: hexToBase64Url(sig.signature_hash),
+              expectedOrigin: getExpectedOrigin(),
+              expectedRPID: getRpId(),
+              requireUserVerification: true,
+              credential: {
+                id: profile.webauthn_credential_id,
+                publicKey: new Uint8Array(
+                  Buffer.from(profile.webauthn_public_key, "base64")
+                ),
+                counter: 0, // bypass replay-counter check for stored signatures
+                transports:
+                  (profile.webauthn_transports as
+                    | AuthenticatorTransport[]
+                    | null) ?? undefined,
+              },
+            });
+            cryptoSignatureValid = result.verified;
+          } catch {
+            cryptoSignatureValid = false;
+          }
+        } else {
           cryptoSignatureValid = false;
         }
-      } else {
-        cryptoSignatureValid = false;
       }
-    }
 
-    verified.push({
-      id: sig.id,
-      signerId: sig.signer_id,
-      signerName: profile?.full_name ?? null,
-      signatureRole: sig.signature_role,
-      algorithm: sig.algorithm ?? "SHA-256",
-      signedAt: sig.signed_at,
-      signatureHash: sig.signature_hash,
-      hashMatch,
-      cryptoSignaturePresent: Boolean(sig.signature_bytes),
-      cryptoSignatureValid,
-      isWebAuthn,
-    });
-  }
+      return {
+        id: sig.id,
+        signerId: sig.signer_id,
+        signerName: profile?.full_name ?? null,
+        signatureRole: sig.signature_role,
+        algorithm: sig.algorithm ?? "SHA-256",
+        signedAt: sig.signed_at,
+        signatureHash: sig.signature_hash,
+        hashMatch,
+        cryptoSignaturePresent: Boolean(sig.signature_bytes),
+        cryptoSignatureValid,
+        isWebAuthn,
+      };
+    })
+  );
 
-  await supabase.from("audit_logs").insert({
+  // Fire-and-forget audit log — never block the response on the insert.
+  void supabase.from("audit_logs").insert({
     user_id: user.id,
     action: "VERIFY_DOCUMENT_SIGNATURE",
     target_table: "documents",

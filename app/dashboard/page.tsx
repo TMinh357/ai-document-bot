@@ -77,9 +77,11 @@ export default async function DashboardPage() {
       : approvalRatioQuery.eq("reviewer_id", user.id)
     : Promise.resolve({ data: null as { status: string }[] | null });
 
-  const remindersPromise = canReview
-    ? fireOverdueReminders(user.id)
-    : Promise.resolve();
+  // Fire-and-forget — reminders are side effects, the dashboard doesn't need to wait.
+  if (canReview) {
+    void fireOverdueReminders(user.id);
+  }
+  const remindersPromise = Promise.resolve();
 
   const [
     documentCountResult,

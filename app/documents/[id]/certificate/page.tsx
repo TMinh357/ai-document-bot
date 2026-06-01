@@ -183,83 +183,88 @@ export default async function CertificatePage({ params }: PageProps) {
     }
   }
 
-  const verified: VerifiedSignature[] = [];
-  for (const sig of signatures as SignatureRow[]) {
-    const profile = profileMap.get(sig.signer_id);
-    const signer: SignerInfo = {
-      name: (profile?.full_name as string | null) ?? sig.signer_id,
-      email: sig.signer_id === user.id ? (user.email ?? null) : null,
-      role: (profile?.role as string | null) ?? null,
-      aaguid: (profile?.webauthn_aaguid as string | null) ?? null,
-      deviceType: (profile?.webauthn_device_type as string | null) ?? null,
-      transports:
-        (profile?.webauthn_transports as string[] | null) ?? null,
-      registeredAt:
-        (profile?.webauthn_registered_at as string | null) ?? null,
-    };
-    const hashMatch =
-      currentHash !== null && sig.signature_hash === currentHash;
-    const isWebAuthn = Boolean(sig.client_data_json && sig.authenticator_data);
-    const decodedAuthData = sig.authenticator_data
-      ? decodeAuthenticatorData(sig.authenticator_data)
-      : null;
-
-    let cryptoSignatureValid: boolean | null = null;
-
-    if (
-      isWebAuthn &&
-      sig.signature_bytes &&
-      profile?.webauthn_credential_id &&
-      profile?.webauthn_public_key
-    ) {
-      const reconstructed: AuthenticationResponseJSON = {
-        id: sig.credential_id ?? (profile.webauthn_credential_id as string),
-        rawId: sig.credential_id ?? (profile.webauthn_credential_id as string),
-        type: "public-key",
-        response: {
-          clientDataJSON: sig.client_data_json!,
-          authenticatorData: sig.authenticator_data!,
-          signature: sig.signature_bytes,
-        },
-        clientExtensionResults: {},
+  // Verify every signature in parallel — each WebAuthn verification is
+  // ~100–200ms of crypto work. Sequential loop over N signatures was the
+  // bottleneck making this page take ~2.4s of server work.
+  const verified: VerifiedSignature[] = await Promise.all(
+    (signatures as SignatureRow[]).map(async (sig) => {
+      const profile = profileMap.get(sig.signer_id);
+      const signer: SignerInfo = {
+        name: (profile?.full_name as string | null) ?? sig.signer_id,
+        email: sig.signer_id === user.id ? (user.email ?? null) : null,
+        role: (profile?.role as string | null) ?? null,
+        aaguid: (profile?.webauthn_aaguid as string | null) ?? null,
+        deviceType: (profile?.webauthn_device_type as string | null) ?? null,
+        transports:
+          (profile?.webauthn_transports as string[] | null) ?? null,
+        registeredAt:
+          (profile?.webauthn_registered_at as string | null) ?? null,
       };
+      const hashMatch =
+        currentHash !== null && sig.signature_hash === currentHash;
+      const isWebAuthn = Boolean(sig.client_data_json && sig.authenticator_data);
+      const decodedAuthData = sig.authenticator_data
+        ? decodeAuthenticatorData(sig.authenticator_data)
+        : null;
 
-      try {
-        const result = await verifyAuthenticationResponse({
-          response: reconstructed,
-          expectedChallenge: hexToBase64Url(sig.signature_hash),
-          expectedOrigin: getExpectedOrigin(),
-          expectedRPID: getRpId(),
-          requireUserVerification: true,
-          credential: {
-            id: profile.webauthn_credential_id as string,
-            publicKey: new Uint8Array(
-              Buffer.from(profile.webauthn_public_key as string, "base64")
-            ),
-            counter: 0,
-            transports:
-              (profile.webauthn_transports as
-                | AuthenticatorTransport[]
-                | null) ?? undefined,
+      let cryptoSignatureValid: boolean | null = null;
+
+      if (
+        isWebAuthn &&
+        sig.signature_bytes &&
+        profile?.webauthn_credential_id &&
+        profile?.webauthn_public_key
+      ) {
+        const reconstructed: AuthenticationResponseJSON = {
+          id: sig.credential_id ?? (profile.webauthn_credential_id as string),
+          rawId:
+            sig.credential_id ?? (profile.webauthn_credential_id as string),
+          type: "public-key",
+          response: {
+            clientDataJSON: sig.client_data_json!,
+            authenticatorData: sig.authenticator_data!,
+            signature: sig.signature_bytes,
           },
-        });
-        cryptoSignatureValid = result.verified;
-      } catch {
+          clientExtensionResults: {},
+        };
+
+        try {
+          const result = await verifyAuthenticationResponse({
+            response: reconstructed,
+            expectedChallenge: hexToBase64Url(sig.signature_hash),
+            expectedOrigin: getExpectedOrigin(),
+            expectedRPID: getRpId(),
+            requireUserVerification: true,
+            credential: {
+              id: profile.webauthn_credential_id as string,
+              publicKey: new Uint8Array(
+                Buffer.from(profile.webauthn_public_key as string, "base64")
+              ),
+              counter: 0,
+              transports:
+                (profile.webauthn_transports as
+                  | AuthenticatorTransport[]
+                  | null) ?? undefined,
+            },
+          });
+          cryptoSignatureValid = result.verified;
+        } catch {
+          cryptoSignatureValid = false;
+        }
+      } else if (sig.signature_bytes) {
         cryptoSignatureValid = false;
       }
-    } else if (sig.signature_bytes) {
-      cryptoSignatureValid = false;
-    }
 
-    verified.push({
-      ...sig,
-      signer,
-      hashMatch,
-      cryptoSignatureValid,
-      isWebAuthn,
-      decodedAuthData,
-    });
-  }
+      return {
+        ...sig,
+        signer,
+        hashMatch,
+        cryptoSignatureValid,
+        isWebAuthn,
+        decodedAuthData,
+      };
+    })
+  );
 
   const ownerSig = verified.find(
     (v) => v.signature_role === "owner_submission"
