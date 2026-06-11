@@ -63,6 +63,15 @@ export default async function DashboardPage() {
     .eq("user_id", user.id)
     .eq("is_read", false);
 
+  // Always owner-scoped (every role), so the "Awaiting Review" / "Needs
+  // Revision" quick-action cards count the user's OWN documents and therefore
+  // match the owner-scoped /documents?status=... page they deep-link to. This
+  // is distinct from chartDocs, which is system-wide for admins.
+  const ownedStatusPromise = supabase
+    .from("documents")
+    .select("status")
+    .eq("owner_id", user.id);
+
   const chartDocsQuery = supabase
     .from("documents")
     .select("status, created_at");
@@ -89,12 +98,14 @@ export default async function DashboardPage() {
     unreadResult,
     chartDocsResult,
     approvalRatioResult,
+    ownedStatusResult,
   ] = await Promise.all([
     documentCountPromise,
     pendingReviewsPromise,
     unreadPromise,
     chartDocsPromise,
     approvalRatioPromise,
+    ownedStatusPromise,
     remindersPromise,
   ]);
 
@@ -103,6 +114,11 @@ export default async function DashboardPage() {
   const unreadCount = unreadResult.count ?? 0;
   const chartDocs = chartDocsResult.data;
   const ratioData = approvalRatioResult.data;
+
+  // Owner-scoped counts for the quick-action cards (the user's own documents).
+  const ownedDocs = (ownedStatusResult.data ?? []) as { status: string }[];
+  const ownedPending = ownedDocs.filter((d) => d.status === "pending").length;
+  const ownedRejected = ownedDocs.filter((d) => d.status === "rejected").length;
 
   const pendingReviewCount = pendingReviews.length;
   const nowMs = Date.now();
@@ -412,7 +428,7 @@ export default async function DashboardPage() {
                   Awaiting Review
                 </h3>
                 <span className="inline-flex min-w-6 items-center justify-center rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                  {statusCounts.pending}
+                  {ownedPending}
                 </span>
               </div>
               <p className="muted-copy mt-1.5 text-sm leading-6">
@@ -420,7 +436,7 @@ export default async function DashboardPage() {
               </p>
             </Link>
 
-            {statusCounts.rejected > 0 && (
+            {ownedRejected > 0 && (
               <Link
                 href="/documents?status=rejected"
                 className="metric-card p-5"
@@ -430,7 +446,7 @@ export default async function DashboardPage() {
                     Needs Revision
                   </h3>
                   <span className="inline-flex min-w-6 items-center justify-center rounded-md bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
-                    {statusCounts.rejected}
+                    {ownedRejected}
                   </span>
                 </div>
                 <p className="muted-copy mt-1.5 text-sm leading-6">
