@@ -127,7 +127,6 @@ export default async function DashboardPage() {
     pending: 0,
     approved: 0,
     rejected: 0,
-    signed: 0,
   };
 
   (chartDocs ?? []).forEach((d) => {
@@ -219,7 +218,7 @@ export default async function DashboardPage() {
           className={`grid gap-4 ${canReview ? "md:grid-cols-3" : "md:grid-cols-2"}`}
         >
           <div className="metric-card rounded-[1.75rem] p-6">
-            <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
+            <h2 className="text-sm font-medium text-gray-500">
               Documents
             </h2>
 
@@ -232,7 +231,7 @@ export default async function DashboardPage() {
 
           {canReview && (
             <div className="metric-card rounded-[1.75rem] p-6">
-              <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
+              <h2 className="text-sm font-medium text-gray-500">
                 Pending Reviews
               </h2>
 
@@ -263,7 +262,7 @@ export default async function DashboardPage() {
           )}
 
           <div className="metric-card rounded-[1.75rem] p-6">
-            <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-gray-600">
+            <h2 className="text-sm font-medium text-gray-500">
               Notifications
             </h2>
 
@@ -382,37 +381,70 @@ export default async function DashboardPage() {
           </div>
         )}
 
-        <div className="mt-6 section-card rounded-[2rem] p-6 md:p-8">
-          <h2 className="text-2xl font-semibold text-gray-900">Quick Actions</h2>
-
-          <p className="muted-copy mt-2 text-sm">
+        <div className="mt-8">
+          <h2 className="text-lg font-semibold text-gray-900">Quick Actions</h2>
+          <p className="muted-copy mt-1 text-sm">
             Access the main features of the document review system.
           </p>
 
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <Link
-              href="/documents"
-              className="metric-card rounded-[1.5rem] p-5 hover:-translate-y-0.5"
-            >
-              <h3 className="text-lg font-semibold text-gray-900">
-                Manage Documents
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <Link href="/documents/new" className="metric-card p-5">
+              <h3 className="text-base font-semibold text-gray-900">
+                New Document
               </h3>
-
-              <p className="muted-copy mt-2 text-sm leading-6">
-                Create, view, upload, and manage document records.
+              <p className="muted-copy mt-1.5 text-sm leading-6">
+                Create a document, upload a PDF, and start the review workflow.
               </p>
             </Link>
 
-            {canReview && (
+            <Link href="/documents" className="metric-card p-5">
+              <h3 className="text-base font-semibold text-gray-900">
+                Manage Documents
+              </h3>
+              <p className="muted-copy mt-1.5 text-sm leading-6">
+                View, upload new versions, and track all of your documents.
+              </p>
+            </Link>
+
+            <Link href="/documents?status=pending" className="metric-card p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-semibold text-gray-900">
+                  Awaiting Review
+                </h3>
+                <span className="inline-flex min-w-6 items-center justify-center rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                  {statusCounts.pending}
+                </span>
+              </div>
+              <p className="muted-copy mt-1.5 text-sm leading-6">
+                Your documents currently in review, pending a decision.
+              </p>
+            </Link>
+
+            {statusCounts.rejected > 0 && (
               <Link
-                href="/reviews"
-                className="metric-card rounded-[1.5rem] p-5 hover:-translate-y-0.5"
+                href="/documents?status=rejected"
+                className="metric-card p-5"
               >
-                <h3 className="text-lg font-semibold text-gray-900">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-semibold text-gray-900">
+                    Needs Revision
+                  </h3>
+                  <span className="inline-flex min-w-6 items-center justify-center rounded-md bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
+                    {statusCounts.rejected}
+                  </span>
+                </div>
+                <p className="muted-copy mt-1.5 text-sm leading-6">
+                  Documents a reviewer rejected — upload a new version to resubmit.
+                </p>
+              </Link>
+            )}
+
+            {canReview && (
+              <Link href="/reviews" className="metric-card p-5">
+                <h3 className="text-base font-semibold text-gray-900">
                   Review Queue
                 </h3>
-
-                <p className="muted-copy mt-2 text-sm leading-6">
+                <p className="muted-copy mt-1.5 text-sm leading-6">
                   View documents assigned to you and make review decisions.
                 </p>
               </Link>
@@ -421,13 +453,12 @@ export default async function DashboardPage() {
             {isAdmin && (
               <Link
                 href="/admin"
-                className="metric-card rounded-[1.5rem] p-5 hover:-translate-y-0.5 md:col-span-2"
+                className="metric-card p-5 md:col-span-2"
               >
-                <h3 className="text-lg font-semibold text-teal-700">
+                <h3 className="text-base font-semibold text-gray-900">
                   Admin Panel
                 </h3>
-
-                <p className="muted-copy mt-2 text-sm leading-6">
+                <p className="muted-copy mt-1.5 text-sm leading-6">
                   Manage users, roles, view all documents, approvals, and audit logs.
                 </p>
               </Link>

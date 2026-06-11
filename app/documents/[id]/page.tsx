@@ -6,6 +6,7 @@ import StatusBadge from "@/components/StatusBadge";
 import AIWorkspace from "@/components/AIWorkspace";
 import SignDocumentPanel from "@/components/SignDocumentPanel";
 import UploadNewVersionForm from "@/components/UploadNewVersionForm";
+import DeleteDraftButton from "@/components/DeleteDraftButton";
 import PdfViewerLoader from "@/components/PdfViewerLoader";
 import type { Highlight } from "@/components/InlinePdfViewer";
 import DocumentTimeline, {
@@ -496,6 +497,23 @@ export default async function DocumentDetailPage({ params }: PageProps) {
               documentStatus={document.status}
               latestVersionNo={latestVersion.version_no}
             />
+          )}
+
+          {isOwner && document.status === "draft" && (
+            <div className="mt-6 border-t border-gray-200 pt-5">
+              <p className="text-sm font-medium text-gray-700">Delete draft</p>
+              <p className="muted-copy mt-1 text-sm">
+                Permanently remove this draft and its files. Available only while
+                the document is in draft; once submitted, only an admin can
+                delete it.
+              </p>
+              <div className="mt-3">
+                <DeleteDraftButton
+                  documentId={document.id}
+                  documentTitle={document.title}
+                />
+              </div>
+            </div>
           )}
         </section>
 

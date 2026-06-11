@@ -3,7 +3,6 @@ type StatusCounts = {
   pending: number;
   approved: number;
   rejected: number;
-  signed: number;
 };
 
 type MonthBucket = {
@@ -28,7 +27,6 @@ const STATUS_BAR_COLORS: Record<keyof StatusCounts, string> = {
   pending: "bg-amber-500",
   approved: "bg-green-500",
   rejected: "bg-red-500",
-  signed: "bg-teal-500",
 };
 
 const STATUS_ORDER: (keyof StatusCounts)[] = [
@@ -36,7 +34,6 @@ const STATUS_ORDER: (keyof StatusCounts)[] = [
   "pending",
   "approved",
   "rejected",
-  "signed",
 ];
 
 export default function DashboardCharts({
@@ -62,7 +59,7 @@ export default function DashboardCharts({
           <h2 className="text-lg font-semibold text-gray-900">
             Documents by Status
           </h2>
-          <span className="text-xs uppercase tracking-[0.18em] text-gray-400">
+          <span className="text-xs text-gray-400">
             {totalDocs} total
           </span>
         </div>
@@ -107,31 +104,41 @@ export default function DashboardCharts({
           <h2 className="text-lg font-semibold text-gray-900">
             Documents by Month
           </h2>
-          <span className="text-xs uppercase tracking-[0.18em] text-gray-400">
+          <span className="text-xs text-gray-400">
             Last 6 months
           </span>
         </div>
 
-        <div className="mt-6 flex h-48 items-end gap-3">
+        {/* Fixed-pixel plot area: bar height is computed directly from the
+            count against PLOT_HEIGHT, so scaling is exact and does not depend
+            on a percentage-of-flex-parent chain (which collapses inside
+            align-items:end). A 12-doc bar is exactly 3x a 4-doc bar. */}
+        <div className="mt-6 flex items-end gap-3 border-b border-gray-200 pb-px">
           {monthlyCounts.map((m) => {
-            const heightPct = (m.count / maxMonth) * 100;
+            const PLOT_HEIGHT = 160; // px — the tallest bar fills this
+            const barHeight =
+              m.count > 0
+                ? Math.max((m.count / maxMonth) * PLOT_HEIGHT, 8)
+                : 0;
             return (
               <div
                 key={m.label}
                 className="flex flex-1 flex-col items-center gap-2"
               >
-                <div className="relative flex w-full flex-1 items-end justify-center">
+                {/* Track: a faint full-height rail so empty months read as
+                    "0 this month" rather than looking like a broken chart. */}
+                <div
+                  className="relative flex w-full items-end justify-center rounded-t-xl bg-gray-100/70"
+                  style={{ height: `${PLOT_HEIGHT}px` }}
+                >
                   {m.count > 0 && (
                     <span className="absolute -top-5 text-xs font-semibold text-gray-700">
                       {m.count}
                     </span>
                   )}
                   <div
-                    className="w-full rounded-t-xl bg-teal-500 transition-all"
-                    style={{
-                      height: `${heightPct}%`,
-                      minHeight: m.count > 0 ? "6px" : "0px",
-                    }}
+                    className="w-full rounded-t-xl bg-gradient-to-t from-teal-600 to-teal-400 transition-all"
+                    style={{ height: `${barHeight}px` }}
                   />
                 </div>
                 <span className="text-xs text-gray-600">{m.label}</span>
@@ -147,7 +154,7 @@ export default function DashboardCharts({
             <h2 className="text-lg font-semibold text-gray-900">
               Approval / Rejection Ratio
             </h2>
-            <span className="text-xs uppercase tracking-[0.18em] text-gray-400">
+            <span className="text-xs text-gray-400">
               {totalDecided} decisions
               {approvalRatio.pending > 0 &&
                 ` · ${approvalRatio.pending} pending`}

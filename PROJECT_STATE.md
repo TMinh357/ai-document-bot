@@ -1,30 +1,40 @@
 # AI Document Review Assistant — Project State
 
 > Snapshot for any new chat session. Read this first before suggesting changes.
-> Last updated: 2026-05-06
+> Last updated: 2026-06-09 (verified against source)
 
 ## Goal
 
-Graduation project: a document-review SaaS where employees submit PDF documents, reviewers approve/reject with comments, and admins manage the system. Includes an AI assistant for text extraction / summary / Q&A and digital signature with integrity verification.
+Graduation project: a document-review SaaS where employees submit PDF documents, reviewers approve/reject with comments, and admins manage the system. Includes an AI assistant for text extraction / summary / Q&A and **WebAuthn (Windows Hello) multi-party digital signatures** with integrity verification.
 
 ## Stack
 
 - Next.js 16 (App Router, Turbopack, React Server Components — has breaking changes from older versions; see `AGENTS.md`)
 - React 19
-- Tailwind v4 (custom design system: `page-shell`, `section-card`, `metric-card`, `button-primary/secondary`, `status-pill`, `eyebrow`, `muted-copy`)
-- Supabase (Auth, Postgres + RLS, Storage)
+- Tailwind v4 (custom design system in `app/globals.css`: `page-shell`, `section-card`, `metric-card`, `button-primary/secondary/success/danger`, `status-pill`, `eyebrow`, `muted-copy`, `select-field`, `textarea-field`). Visual direction is **flat / production-tool** (solid `#f7f8fa` background, hairline `#e5e7eb` borders, ~10px radii, minimal shadows, flat solid buttons, normal-case labels) — deliberately not the gradient/glassmorphism look. Surface classes force a single 10px radius via `!important` to override leftover `rounded-[2rem]` utilities in markup.
+- Supabase (Auth, Postgres + RLS, Storage, Realtime)
 - TypeScript strict
 - `pdf-parse` (1.1.1) for PDF text extraction — wraps `pdfjs-dist`, outputs proper word spacing without camelCase recovery hacks
+- `react-pdf` (10.x) for the inline PDF viewer
+- `@simplewebauthn/server` + `@simplewebauthn/browser` (13.x) for WebAuthn registration, signing assertions, and verification
 - `openai` package — powers AI summary, key points, risk notes, Q&A (structured-output JSON schema) and the OCR fallback path via the Files API
-- Deployed on Vercel
+- Deployed on Vercel (functions pinned to the Singapore `sin1` region)
 
 ## Roles
 
 - **employee** — creates/uploads/submits own documents; cannot see other employees' docs; no admin/review access
 - **reviewer** — sees and approves/rejects documents assigned via the `approvals` table; cannot edit/delete employee docs
-- **admin** — system-wide access; manages users + roles; uses service-role API routes for privileged actions
+- **admin** — system-wide access; manages users + roles; uses service-role API routes for privileged actions. Admins can also be picked as reviewers.
 
-RBAC is enforced at the page level via `lib/supabase/auth.ts` (`requireUser`, `requireRole`). RLS exists but `documents` / `document_versions` SELECT is still `USING (TRUE)` — page-level checks are the primary gate.
+RBAC is enforced at the page level via `lib/supabase/auth.ts` (`requireUser`, `requireRole`) **and** by row-scoped RLS SELECT policies on `documents` / `document_versions` (see "Tightened SELECT RLS"). All privileged writes go through service-role API routes.
+
+## Document lifecycle (state machine)
+
+`draft → pending → approved` (happy path) or `draft → pending → rejected → (new version) → draft → pending …`
+
+- The owner signs the file with Windows Hello at submission, which moves `draft → pending`.
+- Each assigned reviewer signs with Windows Hello when approving. The document becomes `approved` only when **every** reviewer in the current round has approved; a single rejection flips it to `rejected` and locks the round.
+- There is **no separate `signed` status** — signing is integrated into submission + approval. (`'signed'` still exists as a leftover allowed value in the `documents.status` column, but nothing in the workflow ever sets it and it has been removed from the dashboard charts. Treat it as deprecated.)
 
 ## Features built
 
@@ -32,45 +42,56 @@ RBAC is enforced at the page level via `lib/supabase/auth.ts` (`requireUser`, `r
 - Sign in / sign out / register flow
 - **Admin approval required for new accounts** — every new sign-up lands with `profiles.status = 'pending'`. `requireUser()` redirects non-approved users to `/account-status`, which shows a pending or rejected message and a sign-out button. Admins approve / reject from `/admin/users`; the user receives an in-app notification on the decision and a `ADMIN_CHANGE_USER_STATUS` audit log entry is recorded.
 - Per-page role gates redirect employees away from `/reviews` and `/admin/*`
-- Document detail page restricted to owner / assigned reviewer / admin
+- Document detail page restricted to owner / assigned reviewer / admin (enforced both by RLS and an explicit redirect check)
 - Header on every page shows a `<UserBadge />` chip with full name, email, and role next to the notification bell
 
 ### Documents
 - Create + upload PDF (V1) — server-validated via `/api/documents` (magic bytes `%PDF-`, max 10 MB)
 - Multi-version uploads with "Latest" / "Superseded" badges (only owner can upload while status is `draft` or `rejected`) — server-validated via `/api/documents/[id]/versions`
-- Submit for review (draft → pending) — owner picks **N reviewers** at submission time; document is approved only when all reviewers approve, rejected immediately if any reviewer rejects (early termination locks the round)
-- Each submission is a "round" (`approvals.round_no`); resubmit-after-rejection bumps round_no, owner picks reviewers again, old rounds preserved as history grouped per round
+- Submit for review (draft → pending) — owner picks **N reviewers** at submission time and signs with Windows Hello; document is approved only when all reviewers approve, rejected immediately if any reviewer rejects (early termination locks the round)
+- Each submission is a "round" (`approvals.round_no`); resubmit-after-rejection bumps round_no, owner picks reviewers again and re-signs, old rounds preserved as history grouped per round
 - Resubmit-after-rejection: red **Revision Required** banner with the rejection comment, owner uploads a new version which resets status to `draft`, then submits again
 - Comment optional on approve, required on reject
-- Document statuses: `draft / pending / approved / rejected / signed`
-- Owner-only Submit form, reviewer-only Approve/Reject form (when assigned and pending)
+- **Status-filtered list** at `/documents?status=<draft|pending|approved|rejected>`: server-rendered filter tabs (All / Draft / Pending / Approved / Rejected), each with a live per-status count badge; the active tab filters the owner's documents server-side. Next.js 16 `searchParams` is awaited (it's a Promise). Dashboard Quick Action cards deep-link into these views.
+- **Owner draft deletion** — `DELETE /api/documents/[id]` lets the owner delete their own document **only while it is `draft`** (cascade-cleans files + child rows, audit-logs `DELETE_DRAFT_DOCUMENT`). Once submitted/approved/rejected the document carries approval + signature history, so deletion becomes admin-only (`DELETE /api/admin/documents/[id]`) to preserve the audit trail. Delete button (`components/DeleteDraftButton.tsx`) shows on the detail page only for owner + draft.
+
+### Digital signatures (WebAuthn / Windows Hello — multi-party)
+
+This is the project's centerpiece. It replaced the original hash-only design and a discarded IndexedDB-keypair design (see "History" below).
+
+- **Mechanism**: each signing event is a WebAuthn authentication ceremony. The **challenge is the SHA-256 hash of the latest file** (hex → base64url), so the signature is cryptographically bound to the exact file bytes. The private key is a platform-authenticator (Windows Hello / Touch ID) credential, TPM-backed and non-extractable; `requireUserVerification: true` forces a PIN/biometric at every signature.
+- **Multi-party model**:
+  - **Owner** signs at submission — `POST /api/documents/[id]/submit` requires a WebAuthn assertion; stored with `signature_role = 'owner_submission'`.
+  - **Each approving reviewer** signs at decision time — `POST /api/approvals/[approvalId]/decide` requires an assertion **only when approving** (rejection needs none); stored with `signature_role = 'reviewer_approval'`.
+- **One-time key setup**: `components/SigningKeySetup.tsx` modal preflights `platformAuthenticatorIsAvailable()`, then registers a credential via `/api/profile/webauthn/register-options` (challenge stored in a 5-minute HttpOnly cookie) → `startRegistration()` → `/api/profile/webauthn/register` (`verifyRegistrationResponse`, `attestationType: 'none'`, `authenticatorAttachment: 'platform'`). The credential id, public key, sign counter, device type, transports, AAGUID, and registered-at timestamp are saved on the `profiles` row.
+- **Server verification** (`lib/webauthn/verify.ts`): `verifyAuthenticationResponse` with the expected challenge = file hash, expected origin/RPID from `lib/webauthn/config.ts`, `requireUserVerification: true`. On success the route updates `profiles.webauthn_counter` so a cloned authenticator's replayed assertion is rejected next time.
+- **Storage**: signatures live in the `document_signatures` table only — `signature_hash`, `signature_bytes`, `client_data_json`, `authenticator_data`, `credential_id`, `algorithm` (`'WebAuthn-ES256'`), `signature_role`, `round_no`, `signed_at`. The original PDF bytes are never modified (PAdES/PKCS#7 embedding is deliberately out of scope).
+- **Verify Integrity** (`/api/documents/[id]/signature/verify`) and the **certificate page** (`/documents/[id]/certificate`) both recompute the current file hash and re-verify **every** signature in parallel (`Promise.all`) — checking `hashMatch` (stored hash vs current file) and re-running the ECDSA verification against each signer's stored public key (`counter: 0` to bypass the replay check for stored signatures). The certificate decodes `authenticatorData` flags (user-verified, user-present, backup-eligible, sign counter) and resolves the AAGUID to a friendly authenticator name (`lib/webauthn/aaguid-registry.ts`).
+- **Performance caching**: `lib/document-hash.ts` (`getOrComputeLatestVersionHash`) reads `document_versions.content_hash` when present and lazily backfills it on the first miss, so sign/verify operations don't re-download the file every time.
+- **approved_hash snapshot**: when a round reaches unanimous approval, the decide route snapshots the verified file hash onto `documents.approved_hash` so later tampering is detectable against the approved-state fingerprint.
+- **Tamper-detection demo**: three scenarios are demonstrable — (a) valid file matching all signatures, (b) file modified between owner submission and reviewer approval, (c) file modified after both parties signed. Each shows hash mismatch + crypto-invalid on the affected signature.
 
 ### AI Assistant
-- **Hybrid text extraction**: `pdf-parse` reads the text layer first; if the result is < 100 chars (scanned/image-only PDF) the same buffer is uploaded via OpenAI Files API and the multimodal model performs OCR (fallback path). `audit_logs.metadata.path` records `text_layer` vs `ocr_vision`. Page cap: OCR refuses PDFs > 10 pages.
+- **Hybrid text extraction** (`/api/documents/[id]/extract-text`): `pdf-parse` reads the text layer first; if the result is < 100 chars (scanned/image-only PDF) the same buffer is uploaded via OpenAI Files API and the multimodal model performs OCR (fallback path). `audit_logs.metadata.path` records `text_layer` vs `ocr_vision`. Page cap: OCR refuses PDFs > 10 pages (`AIOcrPageLimitError` → HTTP 413).
 - **Real OpenAI-powered** summary / key points / risk notes via structured-output JSON schema (model forced to return `{summary, key_points[], risk_notes[]}` — no fragile parsing)
 - **Real OpenAI-powered** Q&A grounded in extracted document text
-- Cost protections: 12k-char input truncation, 1k-char question cap, model + token usage logged into `audit_logs.metadata` per call
-- Model swap via `OPENAI_MODEL` env var (default `gpt-5.4-mini`); separate optional `OPENAI_OCR_MODEL` for the OCR path (defaults to `OPENAI_MODEL`); domain errors map to proper HTTP codes — 503 (not configured), 429 (rate limit), 402 (quota exhausted), 413 (OCR page cap exceeded)
+- Cost protections: 12k-char input truncation, model + token usage logged into `audit_logs.metadata` per call
+- Model swap via `OPENAI_MODEL` env var (default `gpt-5.4-mini`); separate optional `OPENAI_OCR_MODEL` for the OCR path (defaults to `OPENAI_MODEL`); domain errors map to proper HTTP codes — 503 (not configured), 401 (invalid key), 429 (rate limit), 402 (quota exhausted), 413 (OCR page cap exceeded)
 - Caching is implicit: detail page loads the latest `document_ai_results` row by `created_at DESC`, so the most recent summary wins; users click "Generate Summary" to refresh
 - Per-version state isolation (AIWorkspace remounts on version change via `key={latestVersion?.id}`)
 
-### Digital signature
-- SHA-256 hash of latest file → stored in `document_signatures` (only on `approved` status)
-- Verify Integrity button — recomputes hash, compares with stored, returns ✓ / ✗
-- `/documents/[id]/certificate` page — print-friendly certificate with title, signer, signed time, hash, status, live verification result
-
 ### Notifications
-- In-app notifications (review assigned, approved, rejected) shown on dashboard
+- In-app notifications (review assigned, review progress, review overdue, approved, rejected, account approved/rejected, new user registered) shown on dashboard and `/notifications`
 - Mark read / unread, mark all read
-- **Realtime live updates** via Supabase Realtime — the notification bell receives INSERT/UPDATE events scoped to `user_id` and updates the badge + dropdown without reload. The dashboard wraps a `<DashboardRealtime>` client component that subscribes to `notifications` / `approvals` / `documents` changes for the current user and triggers `router.refresh()` (debounced 400ms) so the three metric cards (Documents, Pending Reviews, Notifications) re-render with fresh counts.
-- **Email notifications via Brevo** — every in-app notification is mirrored to email. `lib/email.ts` calls Brevo's REST API directly (no SDK) and exposes one sender per notification type: `sendReviewAssignedEmail`, `sendDocumentApprovedEmail`, `sendDocumentRejectedEmail`, `sendReviewProgressEmail`, `sendReviewOverdueEmail`, `sendAccountApprovedEmail`, `sendAccountRejectedEmail`, `sendAdminNewUserEmail`. Each is called immediately after the matching `notifications` insert in `/api/documents/[id]/submit`, `/api/approvals/[approvalId]/decide`, `/api/admin/users/[id]/status`, `/api/auth/register-notify`, and `lib/review-reminders.ts`. Emails are best-effort: a missing `BREVO_API_KEY` / `BREVO_FROM_EMAIL` becomes a `console.warn` (dev) or silent skip (prod), and any HTTP/fetch error is logged but never thrown — the in-app notification row is the source of truth. Recipient addresses are resolved via `auth.admin.getUserById()`. Deep-links use `NEXT_PUBLIC_APP_URL`. Brevo is preferred over Resend because its free tier verifies a single sender email (no domain required) and allows sending to any recipient address.
+- **Realtime live updates** via Supabase Realtime — the notification bell receives INSERT/UPDATE events scoped to `user_id` and updates the badge + dropdown without reload. The dashboard wraps a `<DashboardRealtime>` client component that subscribes to `notifications` / `approvals` / `documents` changes for the current user and triggers `router.refresh()` (debounced 400ms) so the metric cards re-render with fresh counts.
+- **Email notifications via Brevo** — every in-app notification is mirrored to email. `lib/email.ts` calls Brevo's REST API directly (no SDK) and exposes one sender per notification type: `sendReviewAssignedEmail`, `sendDocumentApprovedEmail`, `sendDocumentRejectedEmail`, `sendReviewProgressEmail`, `sendReviewOverdueEmail`, `sendAccountApprovedEmail`, `sendAccountRejectedEmail`, `sendAdminNewUserEmail`. Each is called (fire-and-forget) immediately after the matching `notifications` insert in `/api/documents/[id]/submit`, `/api/approvals/[approvalId]/decide`, `/api/admin/users/[id]/status`, `/api/auth/register-notify`, and `lib/review-reminders.ts`. Emails are best-effort: a missing `BREVO_API_KEY` / `BREVO_FROM_EMAIL` becomes a `console.warn` (dev) or silent skip (prod), and any HTTP/fetch error is logged but never thrown — the in-app notification row is the source of truth. Recipient addresses are resolved via `auth.admin.getUserById()`. Deep-links use `NEXT_PUBLIC_APP_URL`. Brevo is preferred over Resend because its free tier verifies a single sender email (no domain required) and allows sending to any recipient address.
 - **Admin notified of new registrations** — after `supabase.auth.signUp()` resolves, the client fires a fire-and-forget `POST /api/auth/register-notify` with the new user's id. The server-side route validates the profile was created within the last 5 minutes and is `status='pending'` (anti-abuse window), then fans out a `new_user_registered` in-app notification + email to every approved admin so they can review the pending account in `/admin/users`. The Supabase `handle_new_user` trigger that creates the profile row is synchronous with the `auth.users` insert, so by the time the client makes the follow-up call the row already exists.
 
 ### Dashboard
-- Metric cards (Documents, Pending Reviews, Notifications) — scoped per role
-- Visual charts (CSS-only, no library): Documents by Status, Documents by Month (last 6), Approval/Rejection Ratio
-- Notification panel
-- Quick actions
+- Metric cards (Documents, Pending Reviews, Notifications) — scoped per role; all five backing queries run in parallel via `Promise.all`
+- Visual charts (CSS-only, no library): Documents by Status (draft/pending/approved/rejected — `signed` removed), Documents by Month (last 6, fixed-pixel bar heights so a 12-doc bar is exactly 3× a 4-doc bar), Approval/Rejection Ratio
+- "My Pending Reviews" list (reviewers/admins) — sorted by deadline with overdue/due-soon color coding
+- **Role-aware Quick Action cards**: employees see *New Document* (→ `/documents/new`), *Manage Documents* (→ `/documents`), *Awaiting Review* (→ `/documents?status=pending`, badged with own pending count), and *Needs Revision* (→ `/documents?status=rejected`, shown only when count > 0). Reviewers/admins additionally see *Review Queue*; admins see *Admin Panel*. Status-scoped cards deep-link into the filtered documents list.
 
 ### Admin panel
 - Admin dashboard with system metrics
@@ -93,21 +114,22 @@ RBAC is enforced at the page level via `lib/supabase/auth.ts` (`requireUser`, `r
 - Header with status badge
 - Revision Required banner (when rejected, owner only)
 - Uploaded Files section with version status pills + Upload New Version form
+- Inline PDF viewer + highlights
 - AI Workspace (extract / summarize / chat)
-- Submit for Review form (owner only, draft only) — multi-select reviewer checkbox list
-- **Approval Progress card** (when status = pending) showing round number, X/Y approved, per-reviewer status pills
-- Review Actions form (assigned reviewer in current round, pending only) — shows "X of Y approved" context
-- Sign Document Panel with Verify Integrity + View Certificate link
+- Submit for Review form (owner only, draft only) — multi-select reviewer checkbox list + deadline picker + Windows Hello signing
+- **Approval Progress card** (when status = pending) showing round number, X/Y approved, per-reviewer status pills + per-reviewer Overdue pill + round deadline
+- Review Actions form (assigned reviewer in current round, pending only) — Sign-and-Approve (Windows Hello) / Reject, shows "X of Y approved" context
+- Sign Document Panel with Verify Integrity + View Certificate link (lists every signature with hash-match + crypto-valid badges)
 - Approval History grouped by round (current round badged)
-- Document Timeline (replaces old Activity Log) — vertical timeline with colored dots: Created, Uploaded, Submitted (one event per round, lists all reviewers), Approved/Rejected (per reviewer, tagged with round), Signed
+- Document Timeline — vertical timeline with colored dots: Created, Uploaded, Submitted (one event per round, lists all reviewers), Approved/Rejected (per reviewer, tagged with round), Signed
+- The page runs its 9 independent initial queries in `Promise.all`
 
 ## Review SLAs / due dates
 
 - Owner picks a deadline at submission time (preset 1/3/7/14/30 days, default 7) — server stamps `approvals.due_at` on every row in the round.
 - Dashboard + `/reviews` queue color-code each pending row: **red** (overdue), **amber** (due within 24h), **teal** (normal). Both pages sort by `due_at` ascending.
 - Document detail "Approval Progress" card shows the round deadline + per-reviewer "Overdue" pill.
-- **Lazy reminders**: when a reviewer loads `/dashboard` or `/reviews`, `lib/review-reminders.ts` fires for them — for each pending approval where `due_at < now()` AND (`last_reminded_at IS NULL` OR `last_reminded_at < now() - 24h`), a `review_overdue` notification is inserted and `last_reminded_at` is bumped. No external cron required.
-- Email reminders are deferred (would require Resend integration).
+- **Lazy reminders**: when a reviewer loads `/dashboard` or `/reviews`, `lib/review-reminders.ts` fires for them — for each pending approval where `due_at < now()` AND (`last_reminded_at IS NULL` OR `last_reminded_at < now() - 24h`), a `review_overdue` notification (+ email) is inserted and `last_reminded_at` is bumped. No external cron required.
 
 Schema migration (run once):
 ```sql
@@ -119,12 +141,12 @@ CREATE INDEX IF NOT EXISTS approvals_due_at_idx ON approvals (due_at) WHERE stat
 
 ## Multi-reviewer review pipeline
 
-Both submission and decisions are now server-routed (analogous to the upload pipeline):
+Both submission and decisions are server-routed (analogous to the upload pipeline):
 
-- **Submit for review** — `POST /api/documents/[id]/submit` with `{ reviewerIds: string[] }`. Server validates ownership + draft status + reviewer roles, computes `next_round = max(round_no) + 1`, inserts N approvals rows, sets doc to `pending`, sends one `review_assigned` notification per reviewer, audit-logs.
-- **Reviewer decision** — `POST /api/approvals/[approvalId]/decide` with `{ status, comment }`. Server validates current round + reviewer identity + pending status, updates the approval row, then computes aggregate doc status:
+- **Submit for review** — `POST /api/documents/[id]/submit` with `{ reviewerIds: string[], dueInDays, assertion }`. Server validates ownership + draft status + reviewer roles, verifies the owner's WebAuthn assertion against the current file hash, inserts the owner signature row, computes `next_round = max(round_no) + 1`, inserts N approvals rows, sets doc to `pending`, sends one `review_assigned` notification + email per reviewer, audit-logs.
+- **Reviewer decision** — `POST /api/approvals/[approvalId]/decide` with `{ status, comment, assertion? }`. Server validates current round + reviewer identity + pending status. When approving, it verifies the reviewer's WebAuthn assertion and inserts the reviewer signature row. Then it computes aggregate doc status:
   - any rejected → doc.status = `rejected` (round locked)
-  - all approved → doc.status = `approved`
+  - all approved → doc.status = `approved` (and `approved_hash` snapshotted)
   - else → doc.status stays `pending`
 - Owner gets `document_approved`/`document_rejected` on terminal state, or `review_progress` notifications mid-round.
 - All historical rounds are preserved; the detail page filters to `round_no = max(round_no)` for the live progress UI.
@@ -134,6 +156,41 @@ Schema migration (run once):
 ALTER TABLE approvals ADD COLUMN IF NOT EXISTS round_no integer NOT NULL DEFAULT 1;
 CREATE UNIQUE INDEX IF NOT EXISTS approvals_doc_reviewer_round_idx ON approvals (document_id, reviewer_id, round_no);
 ```
+
+## WebAuthn signing — schema migrations
+
+Run once in the Supabase SQL editor.
+
+```sql
+-- Per-user platform-authenticator credential, stored on the profile.
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS webauthn_credential_id text,
+  ADD COLUMN IF NOT EXISTS webauthn_public_key   text,
+  ADD COLUMN IF NOT EXISTS webauthn_counter      integer,
+  ADD COLUMN IF NOT EXISTS webauthn_device_type  text,
+  ADD COLUMN IF NOT EXISTS webauthn_transports   jsonb,
+  ADD COLUMN IF NOT EXISTS webauthn_aaguid       text,
+  ADD COLUMN IF NOT EXISTS webauthn_registered_at timestamp with time zone;
+
+-- Cryptographic-signature columns on document_signatures (added on top of the
+-- original hash-only design). signature_role distinguishes owner vs reviewer.
+ALTER TABLE document_signatures
+  ADD COLUMN IF NOT EXISTS signature_bytes    text,
+  ADD COLUMN IF NOT EXISTS client_data_json   text,
+  ADD COLUMN IF NOT EXISTS authenticator_data text,
+  ADD COLUMN IF NOT EXISTS credential_id      text,
+  ADD COLUMN IF NOT EXISTS algorithm          text,
+  ADD COLUMN IF NOT EXISTS signature_role     text,
+  ADD COLUMN IF NOT EXISTS round_no           integer;
+
+-- Approved-state fingerprint + cached per-version file hash.
+ALTER TABLE documents
+  ADD COLUMN IF NOT EXISTS approved_hash text;
+ALTER TABLE document_versions
+  ADD COLUMN IF NOT EXISTS content_hash text;
+```
+
+Relevant env vars (see "Important environment"): `NEXT_PUBLIC_RP_ID`, `NEXT_PUBLIC_APP_URL` scope the relying-party id and expected origin.
 
 ## Highlights (passage comments)
 
@@ -234,7 +291,7 @@ Swap the `sub` UUID for the user being impersonated. Each `SET LOCAL` is bounded
 Supabase Realtime broadcasts row-level INSERT / UPDATE / DELETE events over websockets, gated by the same RLS policies that govern SELECT. Two client components subscribe:
 
 - **`components/NotificationBell.tsx`** — after the initial fetch, opens a channel `notifications:${user.id}` with two `postgres_changes` listeners (INSERT and UPDATE) filtered server-side by `user_id=eq.${user.id}`. On INSERT it prepends to the items array (dedup-guarded, capped at `RECENT_LIMIT`). On UPDATE it patches `is_read` in place. Optimistic mark-read writes still happen first; the realtime echo is a no-op.
-- **`components/DashboardRealtime.tsx`** — mounted at the top of `/dashboard`, returns `null`. Opens a channel `dashboard:${user.id}` with three listeners: `notifications` (filtered to the user), `approvals` (filtered to `reviewer_id`), and `documents` (filtered to `owner_id` for non-admins, unfiltered for admins). On any event it calls `router.refresh()` with a 400ms debounce so the server component re-fetches all three metric cards + charts + the "My Pending Reviews" list. Channel is removed on unmount.
+- **`components/DashboardRealtime.tsx`** — mounted at the top of `/dashboard`, returns `null`. Opens a channel `dashboard:${user.id}` with three listeners: `notifications` (filtered to the user), `approvals` (filtered to `reviewer_id`), and `documents` (filtered to `owner_id` for non-admins, unfiltered for admins). On any event it calls `router.refresh()` with a 400ms debounce so the server component re-fetches all metric cards + charts + the "My Pending Reviews" list. Channel is removed on unmount.
 
 Realtime respects RLS — the websocket only delivers rows the user could SELECT — so the explicit `user_id` / `reviewer_id` / `owner_id` filters are an additional optimization (less noise, smaller payload), not a security control.
 
@@ -274,31 +331,49 @@ UPDATE profiles SET status = 'approved' WHERE status = 'pending';
 
 After the migration, the column default of `'pending'` applies to any *new* profile row created by the existing `handle_new_user` trigger, so the registration → admin approval flow takes effect automatically.
 
-## Known gaps
+## History — how signing reached the current design
 
-- Signature is just a file hash — no cryptographic proof of signer identity
-- OCR is capped at 10 pages per document; longer scanned PDFs return a 413 error and need to be split first
-- README is graduation-friendly but lacks screenshots and a deployed URL placeholder is still pending
+The signature system went through three iterations driven by supervisor feedback:
+
+1. **Hash-only** (original report design): SHA-256 of the approved file stored in `document_signatures.signature_hash`. Provides integrity but no proof of *who* signed (non-repudiation).
+2. **In-browser ECDSA P-256 keypair**: private key in IndexedDB. Added non-repudiation but was "account-based, not person-based" — anyone with the browser session could sign. Discarded.
+3. **WebAuthn / Windows Hello (current)**: TPM-backed keypair, fresh biometric/PIN required at every signature, multi-party (owner at submission + each reviewer at approval).
+
+The hash-only columns are retained for backward compatibility — old rows with only `signature_hash` render as "Legacy hash-only" on the certificate.
+
+## Known gaps / limitations
+
+- **No PDF-embedded signatures** (PAdES / PKCS#7). Signatures live in `document_signatures` only; the original file bytes are never modified. Deliberate — adds no cryptographic value for this use case and keeps the original document intact.
+- **`authenticatorAttachment: 'platform'`** means a device without a configured platform authenticator (e.g. a Linux desktop with no Windows Hello equivalent) cannot sign. Handled gracefully: `SigningKeySetup` detects this and shows setup instructions instead of crashing. A phone/QR fallback is a one-line change but trades device-binding strength.
+- OCR is capped at 10 pages per document; longer scanned PDFs return a 413 error and need to be split first.
+- Email from a free Gmail sender lands in Spam until the recipient marks it not-spam once.
+- No automated end-to-end test suite (Playwright is identified as future work).
+- The `'signed'` value remains in the `documents.status` column's allowed set even though the workflow no longer uses it (deprecated leftover); it has been removed from the dashboard charts.
 
 ## Recommended next moves (graduation impact)
 
-1. **Real cryptographic signature** via Web Crypto API (per-user keypair, sign the hash with the private key, verify with the public key).
-
-Lower-priority but valuable: email notifications via Resend, Playwright E2E tests, demo video.
+- **PDF-embedded signatures (PAdES)** — the natural next step now that WebAuthn signing is done; would let the signed PDF be verifiable in standard readers.
+- Playwright E2E tests; demo video; README screenshots + deployed URL.
 
 ## Important environment
 
 - `.env.local` must have: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, `OPENAI_MODEL`
-- Vercel needs the same five env vars on Production (and Preview if used)
+- WebAuthn relying-party config: `NEXT_PUBLIC_RP_ID` (the deployed hostname, e.g. `ai-doc-review.vercel.app`; falls back to `VERCEL_URL`'s host, then `localhost`) and `NEXT_PUBLIC_APP_URL` (the full origin used as the expected WebAuthn origin and email deep-link base; defaults to `http://localhost:3000` / `:3001`). These must be set correctly in production or signing ceremonies will be rejected by the browser.
+- Email (optional but recommended): `BREVO_API_KEY`, `BREVO_FROM_EMAIL` (must be a verified sender in the Brevo dashboard), `BREVO_FROM_NAME` (defaults to "AI Document Review"). Without these the app still works and sends are skipped with a dev warning.
+- Optional: `OPENAI_OCR_MODEL` overrides the model used by the OCR fallback path; defaults to whatever `OPENAI_MODEL` is. If your chat model doesn't support PDF file inputs, set this to a vision-capable model.
+- Vercel needs the same env vars on Production (and Preview if used)
 - `SUPABASE_SERVICE_ROLE_KEY` and `OPENAI_API_KEY` must NOT be `NEXT_PUBLIC_*` — keep them server-only
-- `OPENAI_MODEL` defaults to `gpt-5.4-mini` if unset — fine for dev; set explicitly in Vercel for clarity
-- Optional: `OPENAI_OCR_MODEL` overrides the model used by the OCR fallback path; defaults to whatever `OPENAI_MODEL` is. If your chat model doesn't support PDF file inputs, set this to a vision-capable model (e.g. `gpt-4o-mini`).
-- **Email (optional but recommended):** `BREVO_API_KEY` (from brevo.com → Settings → SMTP & API) enables outbound email; without it the app still works and sends are skipped with a dev warning. `BREVO_FROM_EMAIL` is the verified sender address (must be verified in Brevo dashboard → Senders before any send succeeds). `BREVO_FROM_NAME` is the display name (defaults to "AI Document Review"). `NEXT_PUBLIC_APP_URL` is the base URL used to build deep-links in emails (defaults to `http://localhost:3000`); set it to your Vercel URL in production.
+- Vercel functions are pinned to the Singapore region (`sin1`) to reduce latency to a Singapore-region Supabase project
 
 ## Where to look for what
 
 - DB schema / RLS / sample data: `SUPABASE_CONTEXT.md`
 - Auth helpers: `lib/supabase/auth.ts`
 - Service-role client: `lib/supabase/admin.ts`
+- WebAuthn config / verify / client / authenticator-data / aaguid: `lib/webauthn/*`
+- File-hash caching: `lib/document-hash.ts`
+- OpenAI wrapper: `lib/openai.ts`
+- Email senders: `lib/email.ts`
+- Overdue reminders: `lib/review-reminders.ts`
 - Workflow rules: `CLAUDE.md`
 - Next.js 16 caveats: `AGENTS.md`

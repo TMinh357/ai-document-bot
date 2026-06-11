@@ -8,14 +8,56 @@ import EmptyState from "@/components/EmptyState";
 import FormattedDate from "@/components/FormattedDate";
 import { requireUser } from "@/lib/supabase/auth";
 
-export default async function DocumentsPage() {
+type PageProps = {
+  searchParams: Promise<{ status?: string }>;
+};
+
+// Filter tabs shown above the list. "all" maps to no status filter.
+const STATUS_FILTERS = [
+  { key: "all", label: "All" },
+  { key: "draft", label: "Draft" },
+  { key: "pending", label: "Pending" },
+  { key: "approved", label: "Approved" },
+  { key: "rejected", label: "Rejected" },
+] as const;
+
+const VALID_STATUSES = new Set(["draft", "pending", "approved", "rejected"]);
+
+export default async function DocumentsPage({ searchParams }: PageProps) {
   const { supabase, user, profile, role } = await requireUser();
 
-  const { data: documents } = await supabase
+  const { status: statusParam } = await searchParams;
+  const activeStatus =
+    statusParam && VALID_STATUSES.has(statusParam) ? statusParam : "all";
+
+  let query = supabase
     .from("documents")
     .select("id, title, description, status, created_at")
     .eq("owner_id", user.id)
     .order("created_at", { ascending: false });
+
+  if (activeStatus !== "all") {
+    query = query.eq("status", activeStatus);
+  }
+
+  const { data: documents } = await query;
+
+  // Per-status counts for the filter-tab badges (one lightweight query, all rows).
+  const { data: allForCounts } = await supabase
+    .from("documents")
+    .select("status")
+    .eq("owner_id", user.id);
+
+  const counts: Record<string, number> = { all: 0 };
+  (allForCounts ?? []).forEach((d) => {
+    counts.all += 1;
+    counts[d.status] = (counts[d.status] ?? 0) + 1;
+  });
+
+  const filterLabel =
+    activeStatus === "all"
+      ? "Documents you own. Submit them for review and track their status."
+      : `Showing your ${activeStatus} documents.`;
 
   return (
     <main className="page-shell">
@@ -26,9 +68,7 @@ export default async function DocumentsPage() {
             <h1 className="mt-3 text-4xl font-semibold tracking-tight text-gray-900">
               My Documents
             </h1>
-            <p className="muted-copy mt-2">
-              Documents you own. Submit them for review and track their status.
-            </p>
+            <p className="muted-copy mt-2">{filterLabel}</p>
           </div>
 
           <div className="topbar-nav">
@@ -48,13 +88,45 @@ export default async function DocumentsPage() {
           </div>
         </div>
 
-        {documents && documents.length > 0 && (
-          <div className="mb-6 flex justify-end">
-            <Link href="/documents/new" className="button-primary">
-              Create New Document
-            </Link>
+        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {STATUS_FILTERS.map((filter) => {
+              const isActive = activeStatus === filter.key;
+              const href =
+                filter.key === "all"
+                  ? "/documents"
+                  : `/documents?status=${filter.key}`;
+              const count = counts[filter.key] ?? 0;
+
+              return (
+                <Link
+                  key={filter.key}
+                  href={href}
+                  className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-teal-700 text-white"
+                      : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  {filter.label}
+                  <span
+                    className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold ${
+                      isActive
+                        ? "bg-white/20 text-white"
+                        : "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </Link>
+              );
+            })}
           </div>
-        )}
+
+          <Link href="/documents/new" className="button-primary">
+            Create New Document
+          </Link>
+        </div>
 
         <div className="section-card overflow-hidden rounded-[2rem]">
           <div className="border-b border-gray-200/70 px-6 py-5">
@@ -94,13 +166,22 @@ export default async function DocumentsPage() {
                   </div>
                 </div>
               ))
-            ) : (
+            ) : activeStatus === "all" ? (
               <div className="px-6 py-10">
                 <EmptyState
                   title="No documents yet"
                   description="Create your first document, upload a PDF, and submit it for review."
                   actionLabel="Create New Document"
                   actionHref="/documents/new"
+                />
+              </div>
+            ) : (
+              <div className="px-6 py-10">
+                <EmptyState
+                  title={`No ${activeStatus} documents`}
+                  description={`You have no documents with status "${activeStatus}" right now.`}
+                  actionLabel="View all documents"
+                  actionHref="/documents"
                 />
               </div>
             )}
