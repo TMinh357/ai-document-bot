@@ -6,6 +6,7 @@ import {
   AIRateLimitError,
   answerQuestion,
 } from "@/lib/openai";
+import { RateLimitExceededError, enforceAiRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -33,6 +34,8 @@ export async function POST(request: Request, context: RouteContext) {
         { status: 401 }
       );
     }
+
+    await enforceAiRateLimit(user.id);
 
     const body = await request.json();
     const question = String(body.question || "").trim();
@@ -111,6 +114,15 @@ export async function POST(request: Request, context: RouteContext) {
       answer: result.answer,
     });
   } catch (error) {
+    if (error instanceof RateLimitExceededError) {
+      return NextResponse.json(
+        { error: error.message },
+        {
+          status: 429,
+          headers: { "Retry-After": String(error.retryAfterSeconds) },
+        }
+      );
+    }
     if (error instanceof AIConfigError) {
       return NextResponse.json({ error: error.message }, { status: 503 });
     }

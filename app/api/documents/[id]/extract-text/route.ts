@@ -9,6 +9,7 @@ import {
   AIRateLimitError,
   extractTextFromPdf,
 } from "@/lib/openai";
+import { RateLimitExceededError, enforceAiRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -54,6 +55,8 @@ export async function POST(_request: Request, context: RouteContext) {
         { status: 401 }
       );
     }
+
+    await enforceAiRateLimit(user.id);
 
     const { data: version, error: versionError } = await supabase
       .from("document_versions")
@@ -199,6 +202,15 @@ export async function POST(_request: Request, context: RouteContext) {
       path,
     });
   } catch (error) {
+    if (error instanceof RateLimitExceededError) {
+      return NextResponse.json(
+        { error: error.message },
+        {
+          status: 429,
+          headers: { "Retry-After": String(error.retryAfterSeconds) },
+        }
+      );
+    }
     if (error instanceof AIConfigError) {
       return NextResponse.json({ error: error.message }, { status: 503 });
     }

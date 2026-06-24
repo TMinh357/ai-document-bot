@@ -75,7 +75,7 @@ export default function LoginPage() {
     <main className="page-shell flex items-center justify-center">
       <div className="flex w-full flex-col items-center px-6">
         <div className="mb-8 text-center">
-          <p className="eyebrow text-2xl">AI-Assisted Review System</p>
+          <p className="text-2xl font-medium tracking-wide text-gray-600">AI-Assisted Review System</p>
           <h1 className="mt-4 text-4xl font-semibold tracking-tight text-gray-900 md:whitespace-nowrap md:text-5xl">
             Upload, review, and sign documents.
           </h1>
