@@ -21,7 +21,7 @@
 - 2.5 Infrastructure: Vercel, Brevo, environment variables
 
 **Part 3 — The Database Schema**
-- 3.1 The nine tables and what each one stores
+- 3.1 The ten tables and what each one stores
 - 3.2 Foreign keys and relationships
 - 3.3 Why this schema (design decisions)
 
@@ -259,7 +259,7 @@ Key features used in this project:
 
 - **Buckets.** A bucket is a named container for files. This project has one bucket called `documents`.
 - **Paths.** Within a bucket, files have paths like `user-uuid/document-uuid/timestamp-filename.pdf`. The path structure is hierarchical.
-- **HTTP Range requests.** Allows downloading just part of a file (e.g., the first 1024 bytes) instead of the whole thing. This is critical for the upload validation pipeline — the server only downloads the first few bytes to check the PDF magic number, not the entire 10MB file.
+- **HTTP Range requests.** Allows downloading just part of a file (the validator requests `bytes=0-7`) instead of the whole thing. This is critical for the upload validation pipeline — the server only downloads the first few bytes to check the PDF magic number, not the entire 10MB file.
 - **Signed URLs.** Temporary URLs that grant time-limited access to a file. The PDF viewer uses signed URLs so the file is fetched by the browser directly from Supabase, without going through the Next.js server.
 - **RLS integration.** Storage policies work like database RLS — you can grant access based on the user's identity and file path.
 
@@ -467,7 +467,7 @@ The critical security property: **even a malicious user with full root access to
 
 **COSE** (CBOR Object Signing and Encryption) is a binary format for representing cryptographic data, used by WebAuthn. The public key returned during registration is encoded in COSE format — it's a CBOR-encoded structure containing the algorithm identifier and the key bytes.
 
-The server stores this COSE-encoded public key in the `profiles` table (in a binary column). When verifying signatures later, the `@simplewebauthn/server` library decodes the COSE structure and uses the algorithm + key bytes to verify the signature.
+The server stores this COSE-encoded public key in the `profiles.webauthn_public_key` column — base64-encoded as `text`, not a raw binary column. When verifying signatures later, the `@simplewebauthn/server` library decodes the COSE structure and uses the algorithm + key bytes to verify the signature.
 
 ### What is the AAGUID?
 
@@ -477,9 +477,9 @@ The server stores this COSE-encoded public key in the `profiles` table (in a bin
 - Touch ID on macOS has a different AAGUID.
 - A YubiKey 5 has its own AAGUID.
 
-The AAGUID is returned in the `authenticatorData` of every WebAuthn registration response. The server stores it in `profiles.aaguid`.
+The AAGUID is returned in the `authenticatorData` of every WebAuthn registration response. The server stores it in `profiles.webauthn_aaguid`.
 
-When displaying the certificate page, the application looks up the AAGUID in a small registry (`lib/aaguid-registry.ts`) to produce a friendly name like *"Windows Hello (Hardware, TPM)"* or *"Touch ID (Apple)"*. This lets viewers see what kind of authenticator produced each signature.
+When displaying the certificate page, the application looks up the AAGUID in a small registry (`lib/webauthn/aaguid-registry.ts`) to produce a friendly name like *"Windows Hello (Hardware, TPM)"* or *"Touch ID (Apple)"*. This lets viewers see what kind of authenticator produced each signature.
 
 ### What is the sign counter?
 
@@ -561,7 +561,9 @@ The principle: **secrets are environment variables, never hardcoded in source**.
 
 # Part 3 — The Database Schema
 
-## 3.1 The nine tables and what each one stores
+## 3.1 The ten tables and what each one stores
+
+> Nine tables model the core domain; a tenth, `document_ai_messages`, is an auxiliary AI question/answer log. The report's Table 3.1 lists all ten.
 
 ### profiles
 
@@ -574,12 +576,13 @@ Columns:
 - `status` (text, one of `pending` / `approved` / `rejected` — the admin gate)
 - `created_at` (timestamp)
 
-WebAuthn columns (populated when the user sets up signing):
-- `webauthn_credential_id` (bytea)
-- `webauthn_public_key` (bytea, COSE-encoded)
+WebAuthn columns (populated when the user sets up signing). Note: the binary WebAuthn values are stored **base64/base64url-encoded as `text`**, not as raw `bytea` — this keeps them easy to pass through JSON APIs and the `@simplewebauthn` libraries, which decode them on demand:
+- `webauthn_credential_id` (text, base64url credential id)
+- `webauthn_public_key` (text, base64-encoded COSE key)
 - `webauthn_counter` (integer)
-- `webauthn_aaguid` (UUID)
-- `webauthn_device_type` (text)
+- `webauthn_aaguid` (text — the AAGUID string, resolved to a friendly name via `lib/webauthn/aaguid-registry.ts`)
+- `webauthn_device_type` (text — `singleDevice` or `multiDevice`)
+- `webauthn_transports` (jsonb, e.g. `["internal"]`)
 - `webauthn_registered_at` (timestamp)
 
 When a new user signs up, Supabase Auth's `handle_new_user` trigger automatically creates a `profiles` row with `status = 'pending'`. The admin then approves or rejects via `/admin/users`.
@@ -609,10 +612,11 @@ Columns:
 - `created_by` (foreign key to profiles.id, the uploader — usually the owner)
 - `version_no` (integer, starting at 1)
 - `file_path` (text, the path in Supabase Storage)
-- `file_size` (integer, bytes)
 - `content_text` (text, the extracted text — populated by the AI pipeline)
 - `content_hash` (text, SHA-256 — lazily populated on first signing or verification)
 - `created_at` (timestamp)
+
+(There is no `file_size` column — file size is validated transiently during upload but not stored.)
 
 ### approvals
 
@@ -652,18 +656,21 @@ The percentages let highlights remain correctly positioned across changes in zoo
 
 One row per signing event. The signing log.
 
-Columns:
+Columns (the WebAuthn assertion fields are stored as `text`, base64url-encoded — not `bytea`):
 - `id` (UUID, primary key)
 - `document_id` (foreign key to documents.id)
-- `document_version_id` (foreign key to document_versions.id)
 - `signer_id` (foreign key to profiles.id)
-- `signature_role` (text, one of `owner_submission` / `reviewer_approval`)
+- `signature_role` (text, one of `owner_submission` / `reviewer_approval`; NULL on legacy hash-only rows)
 - `round_no` (integer)
-- `signature_hash` (text, SHA-256 of the file at signing time)
-- `signature` (bytea, raw signature bytes)
-- `authenticator_data` (bytea)
+- `signature_hash` (text, SHA-256 of the file at signing time — this is the WebAuthn challenge)
+- `signature_bytes` (text, the raw signature, base64url)
+- `authenticator_data` (text, base64url)
 - `client_data_json` (text)
+- `credential_id` (text)
+- `algorithm` (text — `WebAuthn-ES256` for new rows)
 - `signed_at` (timestamp)
+
+(There is no `document_version_id` on this table — a signature is tied to a document + round + the file hash at signing time, not to a version row. Legacy pre-WebAuthn rows may have only `signature_hash` populated.)
 
 When the Verify Integrity check runs, it reads every signature for the document, reconstructs the WebAuthn challenge from `client_data_json`, and verifies the signature against the signer's stored public key.
 
@@ -690,7 +697,7 @@ Columns:
 - `document_id` (foreign key to documents.id, nullable)
 - `type` (text, one of: `review_assigned`, `document_approved`, `document_rejected`, `review_progress`, `review_overdue`, `account_approved`, `account_rejected`, `new_user_registered`)
 - `title` (text)
-- `body` (text)
+- `message` (text)
 - `is_read` (boolean, default false)
 - `created_at` (timestamp)
 
@@ -701,7 +708,7 @@ Append-only log of significant actions.
 Columns:
 - `id` (UUID, primary key)
 - `user_id` (foreign key to profiles.id, the actor)
-- `action` (text, the action code, e.g., `DOCUMENT_CREATE`, `ADMIN_CHANGE_USER_STATUS`, `OPENAI_AI_SUMMARY`)
+- `action` (text, the action code — the real ones the code emits include `SUBMIT_FOR_REVIEW`, `APPROVE_DOCUMENT`, `REJECT_DOCUMENT`, `GENERATE_AI_SUMMARY`, `ASK_DOCUMENT_AI`, `DELETE_DRAFT_DOCUMENT`, `ADMIN_CHANGE_USER_STATUS`, `ADMIN_DELETE_DOCUMENT`)
 - `target_id` (UUID, nullable, generic reference)
 - `target_table` (text, nullable, which table target_id refers to)
 - `metadata` (JSONB, action-specific details)
@@ -875,7 +882,7 @@ Additionally, every mutating API route verifies the caller's identity via `requi
 
 ### File upload attacks
 
-The staging-then-validate pipeline (described in detail in §5.2) ensures that no malformed file reaches the main storage area. The server uses HTTP Range to download only the first 1024 bytes of the staged file and verifies it begins with `%PDF-` (the PDF magic bytes). Files that fail are deleted; the request returns 400.
+The staging-then-validate pipeline (described in detail in §5.2) ensures that no malformed file reaches the main storage area. The server uses an HTTP Range request (`bytes=0-7`) to download only the first few bytes of the staged file and verifies it begins with `%PDF-` (the PDF magic bytes, first 5 bytes). Files that fail are deleted; the request returns 400.
 
 Path traversal is prevented because the file path is constructed server-side as `${user.id}/${document.id}/${timestamp}-${sanitized_name}`. The user-provided filename is sanitized to remove `/`, `..`, and special characters before being included.
 
@@ -945,9 +952,9 @@ This upload uses the Supabase client's `upload()` method. The browser talks dire
 - The document title, description (for new documents).
 
 **Step 4 — Server validates with HTTP Range.** The server calls `lib/pdf-validation.ts` which:
-- Generates a signed URL for the staging file (valid for 1 minute).
-- Issues an HTTP Range request: `GET <signed-url>` with header `Range: bytes=0-1023`. This downloads only the first 1024 bytes.
-- Checks `Content-Length` to verify total file size is within the 10MB limit.
+- Generates a signed URL for the staging file (valid for 60 seconds).
+- Issues an HTTP Range request: `GET <signed-url>` with header `Range: bytes=0-7`. This downloads only the first 8 bytes.
+- Reads the total file size from the `Content-Range` response header (the `/<total>` part) and verifies it is within the 10MB limit.
 - Checks the first 5 bytes match `%PDF-` (the PDF magic number).
 
 **Step 5a — Validation fails.** The server:
@@ -969,7 +976,7 @@ This means: even if the validation logic had a bug, the worst that could happen 
 
 ### Why HTTP Range matters
 
-Downloading just 1024 bytes vs the full 10MB is a 10,000× bandwidth savings on every upload. For a busy system, this is significant. The PDF magic number is in the first 5 bytes — there's no reason to download more for validation.
+Downloading 8 bytes vs the full 10MB is a ~million-fold bandwidth savings on every upload. For a busy system, this is significant. The PDF magic number is in the first 5 bytes, and the total size comes from the `Content-Range` header — so there's no reason to download more for validation.
 
 ## 5.3 The AI assistant
 
@@ -1025,9 +1032,9 @@ The AI Workspace remounts (loses its state) when a new document version is uploa
 
 **Step 4 — Server calls OpenAI** (no structured output — just plain text).
 
-**Step 5 — Server returns the answer** + logs the call.
+**Step 5 — Server persists and returns the answer.** The question and the model's answer are inserted as a row in the `document_ai_messages` table (giving each document a chronological Q&A history), the call is logged to `audit_logs` with model + token usage, and the answer is returned to the client.
 
-Notice: the Q&A endpoint does NOT persist the answer. Questions are treated as ephemeral. This simplifies the data model (no chat history table) and limits the privacy footprint.
+Note: this differs from the summary path, which writes to `document_ai_results`. Summaries are a cached structured artifact (one current summary per document); Q&A is an append-only history (many rows per document). Two tables, two shapes.
 
 ### Error mapping
 
@@ -1093,17 +1100,14 @@ This happens both when the owner submits and when a reviewer approves.
 
 This caching matters because computing SHA-256 of a 10MB PDF requires downloading the file from Storage and hashing it — about 6 seconds for a typical document. Caching saves this on every subsequent signing/verifying operation.
 
-**Step 4 — Client requests an authentication challenge.** Calls `POST /api/profile/webauthn/authenticate-options`.
+**Step 4 — Client builds the WebAuthn options itself (no server round-trip).** Unlike registration — which fetches options from `/api/profile/webauthn/register-options` and stores the challenge in an HttpOnly cookie — the *signing* ceremony does **not** call a server `authenticate-options` endpoint. There is no such route. Instead, `lib/webauthn/client.ts` (`signFileHashWithWebAuthn`) constructs the options object on the client:
+  - `challenge`: **the file hash** from Step 3, converted hex → base64url. This is the key trick — the challenge *is* the data we're signing, not a random server nonce.
+  - `allowCredentials`: the user's stored credential ID with `transports: ["internal"]`.
+  - `userVerification: "required"`, `rpId` derived from the current hostname.
 
-**Step 5 — Server generates authentication options.**
-- Calls `generateAuthenticationOptions()` with:
-  - `rpID`: the deployment domain.
-  - `allowCredentials`: an array containing the user's stored credential ID.
-  - `userVerification`: 'required'.
-  - `challenge`: **the file hash** (not a random value). This is the key trick — the challenge is the data we're signing.
-- Returns options.
+  This is safe because the server doesn't *trust* a client-built challenge — at verification time (Step 7) the server independently recomputes the expected challenge from its own cached file hash and rejects the assertion if they don't match. The challenge isn't a secret; it's the file hash, which the server already knows.
 
-**Step 6 — Browser triggers Windows Hello.** Client calls `startAuthentication(options)`.
+**Step 5 — Browser triggers Windows Hello.** Client calls `startAuthentication({ optionsJSON })` from `@simplewebauthn/browser`, which invokes `navigator.credentials.get()`.
 - Windows Hello prompt appears.
 - User authenticates.
 - TPM signs `authenticatorData || SHA-256(clientDataJSON)` with the private key.
@@ -1111,9 +1115,9 @@ This caching matters because computing SHA-256 of a 10MB PDF requires downloadin
 
 The clientDataJSON includes the challenge, the origin, and the type. So by signing it, the TPM is effectively signing `challenge || origin || type`. The challenge in clientDataJSON is the file hash, so the signature cryptographically binds the file content to the signing event.
 
-**Step 7 — Client POSTs to the action route** with the WebAuthn response + the action payload. For submission: `POST /api/documents/[id]/submit` with `{ reviewerIds, deadline, webauthnResponse }`. For review decision: `POST /api/approvals/[approvalId]/decide` with `{ status, comment, webauthnResponse }`.
+**Step 6 — Client POSTs to the action route** with the WebAuthn assertion + the action payload. For submission: `POST /api/documents/[id]/submit` with `{ reviewerIds, dueInDays, assertion }`. For review decision: `POST /api/approvals/[approvalId]/decide` with `{ status, comment, assertion }`.
 
-**Step 8 — Server verifies the assertion.**
+**Step 7 — Server verifies the assertion.**
 - Loads the user's public key from `profiles`.
 - Calls `verifyAuthenticationResponse()` from `@simplewebauthn/server` with:
   - The response from the client.
@@ -1129,13 +1133,13 @@ The clientDataJSON includes the challenge, the origin, and the type. So by signi
   - The signature is mathematically valid under the public key.
   - The sign counter is greater than the stored value.
 
-**Step 9 — If valid:**
+**Step 8 — If valid:**
 - Update the stored sign counter to the new value.
 - Insert a row into `document_signatures` with role (`owner_submission` or `reviewer_approval`), round number, file hash, raw signature, authenticatorData, clientDataJSON.
 - Perform the action's state transition (open the round / record the decision).
 - Insert notifications, update document status, audit log, etc.
 
-**Step 10 — If invalid:**
+**Step 9 — If invalid:**
 - Return HTTP 400 with an error message.
 - No state transition occurs.
 - No signature is recorded.
@@ -1166,7 +1170,7 @@ Accessed at `/documents/[id]/certificate`. A printable page that:
 - Includes a live verification badge (re-runs the verify check on page load).
 - Is styled for print (clean, no navigation, no buttons in print mode).
 
-The AAGUID friendly name comes from `lib/aaguid-registry.ts`, a hand-curated mapping of known AAGUIDs to readable names like "Windows Hello (Hardware, TPM)" or "Touch ID (Apple)".
+The AAGUID friendly name comes from `lib/webauthn/aaguid-registry.ts`, a hand-curated mapping of known AAGUIDs to readable names like "Windows Hello (Hardware, TPM)" or "Touch ID (Apple)".
 
 ## 5.5 The multi-round, multi-reviewer approval pipeline
 
@@ -1187,7 +1191,7 @@ Each round can have multiple reviewers. The aggregate decision rule:
 
 **Step 3 — Owner clicks Submit.** The form first triggers the WebAuthn signing flow (§5.4). On success, it sends `POST /api/documents/[id]/submit` with `{ reviewerIds, deadline, webauthnResponse }`.
 
-**Step 4 — Server verifies the WebAuthn assertion** (§5.4, step 8). If invalid, returns 400.
+**Step 4 — Server verifies the WebAuthn assertion** (§5.4, step 7). If invalid, returns 400.
 
 **Step 5 — Server computes the round number.** `SELECT MAX(round_no) FROM approvals WHERE document_id = $1`, plus 1. For a first-time submission, this is round 1; for a resubmission, it increments.
 
@@ -1203,7 +1207,7 @@ VALUES ($1, $2, $3, 'pending', $4);
 
 **Step 9 — Server inserts notifications.** One `review_assigned` notification per reviewer, plus email via Brevo.
 
-**Step 10 — Server inserts an audit log entry** with action `DOCUMENT_SUBMIT`.
+**Step 10 — Server inserts an audit log entry** with action `SUBMIT_FOR_REVIEW`.
 
 **Step 11 — Client redirects to the document detail page.** The Submit form is now replaced with an Approval Progress card showing the round number, X/Y approved, per-reviewer status pills.
 
@@ -1362,7 +1366,7 @@ The websocket events are gated by RLS — the database only delivers events for 
 - Lists all audit_logs entries.
 - Filters: action type, user, document, date range.
 - Each row shows actor, action code, target, timestamp, metadata (rendered as JSON).
-- Useful for incident review: "show me all DOCUMENT_DELETE actions in the last month."
+- Useful for incident review: "show me all `ADMIN_CHANGE_USER_STATUS` actions in the last month."
 
 ## 5.10 Dashboard analytics
 
@@ -1415,13 +1419,19 @@ ai-document-bot/
 │   │   ├── server.ts             # Anon-key client for server components
 │   │   ├── admin.ts              # Service-role client for API routes
 │   │   └── auth.ts               # requireUser, requireRole helpers
-│   ├── openai.ts                 # OpenAI wrapper with structured outputs
-│   ├── pdf-validation.ts         # Magic-byte + size check
-│   ├── pdf-extraction.ts         # pdf-parse + OCR fallback
+│   ├── webauthn/                 # WebAuthn (signing) — a folder, not one file
+│   │   ├── config.ts             # rpID + expected origin
+│   │   ├── verify.ts             # verifyWebAuthnSignature, hexToBase64Url
+│   │   ├── client.ts             # browser signing helper (startAuthentication)
+│   │   ├── authenticator-data.ts # decode UV/UP/BE flags + sign counter
+│   │   └── aaguid-registry.ts    # friendly names for known AAGUIDs
+│   ├── openai.ts                 # OpenAI wrapper: summary/Q&A/OCR + structured outputs + extractTextFromPdf
+│   ├── pdf-validation.ts         # Magic-byte + size check (Range request)
+│   ├── document-hash.ts          # getOrComputeLatestVersionHash (content_hash cache)
 │   ├── email.ts                  # Brevo integration (8 senders)
-│   ├── review-reminders.ts       # Lazy reminder fan-out
-│   ├── webauthn.ts               # WebAuthn server-side helpers
-│   └── aaguid-registry.ts        # Friendly names for known AAGUIDs
+│   └── review-reminders.ts       # Lazy reminder fan-out
+│   # (lib/crypto/ — key-storage.ts + signing.ts — is the DISCARDED in-browser
+│   #  ECDSA design from before WebAuthn; left in the tree but not used by the workflow)
 ├── types/                        # TypeScript type definitions
 ├── migrations/                   # SQL migration files (run once each)
 ├── scripts/

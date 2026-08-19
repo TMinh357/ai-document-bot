@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python \"c:\\\\Users\\\\ASUS\\\\projects\\\\ai-document-bot\\\\scripts\\\\build_report_short.py\")",
+      "PowerShell(python \"c:\\\\Users\\\\ASUS\\\\projects\\\\ai-document-bot\\\\scripts\\\\estimate_pages.py\")",
+      "WebSearch"
+    ]
+  }
+}

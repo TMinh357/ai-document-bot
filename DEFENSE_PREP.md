@@ -57,7 +57,7 @@ Use the demo script in Section 2.
 1. **(15 sec) Show the dashboard as admin** — point at the metric cards, audit log preview, user list. *"This is the admin view. Three metric cards, real-time updates via Supabase Realtime."*
 2. **(30 sec) Register a new user in session D (incognito).** It lands as pending. *"New accounts are gated by admin approval. Notice the admin dashboard updated in real time via the websocket — no reload."*
 3. **(20 sec) Admin approves the new user.** Email is sent via Brevo. *"Approval triggers an email through Brevo and an in-app notification. The user can now sign in."*
-4. **(30 sec) As employee, create a document and upload the PDF.** *"Client does a pre-flight size + MIME check. The file goes to a staging path. Then the server downloads only the first 1KB via HTTP Range request, validates the PDF magic bytes, and only then moves the file to its final path. Notice the database row is inserted by the service-role client, never by the browser."*
+4. **(30 sec) As employee, create a document and upload the PDF.** *"Client does a pre-flight size + MIME check. The file goes to a staging path. Then the server downloads only the first few bytes via an HTTP Range request, validates the PDF magic bytes, and only then moves the file to its final path. Notice the database row is inserted by the service-role client, never by the browser."*
 5. **(45 sec) Generate AI summary.** Show summary + key points + risk notes. *"This is gpt-5.4-mini with a JSON-schema-constrained structured output. We extract text with pdf-parse first, and fall back to multimodal OCR via the OpenAI Files API if the text layer is empty. Caching is implicit — the latest result for the document is loaded automatically."*
 6. **(45 sec) Submit for review.** Pick the reviewer, deadline 3 days. Windows Hello prompt appears. **Press your fingerprint or PIN.** *"The owner produces a WebAuthn signature here — ECDSA P-256, key bound to my device's TPM. The server verifies the assertion using SimpleWebAuthn before any state transition. If I cancel Hello, nothing is written to the database."*
 7. **(30 sec) Switch to reviewer.** The bell badge incremented in real time. Open the document. Show the inline PDF viewer, drag-select a passage, add a highlight comment. *"Passage-level highlights stored as page-relative percentage rectangles, so they survive zoom and resize."*
@@ -147,9 +147,11 @@ Supabase Realtime broadcasts row-level INSERT/UPDATE/DELETE events over websocke
 
 ## 5. Database & RLS questions
 
-### Q: Why nine tables?
+### Q: How many tables, and why?
 
-Each models a distinct concept in the domain: `profiles` (users + signing credentials), `documents`, `document_versions`, `approvals`, `document_highlights`, `document_signatures`, `document_ai_results`, `notifications`, `audit_logs`. The schema is in third normal form — foreign keys express relationships, no data is duplicated. Adding a tenth table would require it to model something genuinely separate; merging two would denormalize. Documented in §3.2 and Table 3.1.
+Ten tables. Nine model the core domain concepts: `profiles` (users + signing credentials), `documents`, `document_versions`, `approvals`, `document_highlights`, `document_signatures`, `document_ai_results`, `notifications`, `audit_logs`. The tenth, `document_ai_messages`, is an auxiliary log that stores each AI question and the model's answer (one row per question). The schema is in third normal form — foreign keys express relationships, no data is duplicated. Documented in §3.2 and Table 3.1.
+
+*(If asked "why is Q&A in its own table and not in document_ai_results?" — `document_ai_results` caches the structured summary/key-points/risk-notes; `document_ai_messages` is a chronological question/answer history. Different shapes, different lifecycles.)*
 
 ### Q: Why is the signing data on the profiles table instead of a separate credentials table?
 
@@ -238,7 +240,15 @@ Only document text — and only when the user explicitly clicks Generate Summary
 
 ### Q: What if OpenAI is down or rate-limited?
 
-Errors are mapped to specific HTTP status codes: 503 if the API key isn't configured, 429 if rate-limited, 402 if quota exhausted, 413 if the OCR page cap is exceeded. The user gets a friendly message and can retry. The rest of the application — workflow, signing, approvals — is fully functional without AI. The AI is augmentation, not core.
+Errors from OpenAI are mapped to specific HTTP status codes: 503 if the API key isn't configured, 429 if OpenAI itself rate-limits us, 402 if quota is exhausted, 413 if the OCR page cap is exceeded. The user gets a friendly message and can retry. The rest of the application — workflow, signing, approvals — is fully functional without AI. The AI is augmentation, not core.
+
+### Q: How do you stop a user from abusing the AI feature and running up your OpenAI bill?
+
+There's a per-user rate limit on all three AI routes (summary, Q&A, text extraction): by default **20 calls per 10 minutes per user**, shared across the routes, configurable via env vars. When exceeded, the route returns 429 with a `Retry-After` header and a message telling the user how long to wait.
+
+The non-obvious part is *where* the counter lives. The app runs on Vercel's stateless serverless functions, so an in-memory counter would reset on every cold start and wouldn't be shared between concurrent function instances — it wouldn't actually limit anything. So the counter is in Postgres: a small `ai_rate_limits` table plus a `SECURITY DEFINER` function that does an atomic check-and-increment in one statement, which also closes the race where two concurrent requests both read the same count and both think they're under the limit. The table has RLS enabled with no policies, so only the server (service-role) can touch it — a user can't read or forge their own counter.
+
+I made two deliberate trade-offs. It uses a fixed window, which allows a short burst across a window boundary (up to ~2× the limit at the seam); a sliding-window log would be more precise but needs per-request rows and cleanup, which is overkill here — I'd add it for production. And it fails open: if the limiter's own database call fails, the request is allowed rather than blocked, because a limiter outage should never take down the core AI feature.
 
 ### Q: What about hallucinations in the AI summary?
 
@@ -247,6 +257,14 @@ The Q&A endpoint prompt explicitly instructs the model to ground answers in the 
 ### Q: How does the OCR fallback work?
 
 If pdf-parse returns fewer than 100 characters (likely a scanned image PDF), the original PDF buffer is uploaded to OpenAI's Files API, and the multimodal model is asked to return the text content. This is server-side, the user doesn't choose it. The 10-page cap prevents accidentally expensive calls on large scanned documents. Each call records which path was used in `audit_logs.metadata` as either `text_layer` or `ocr_vision`, useful for cost analysis.
+
+### Q: Why cap OCR at 10 pages? Doesn't that mean longer documents can't use the AI?
+
+First, the scope of the cap is narrower than it sounds. It applies **only to the OCR fallback path**, which only runs for scanned image PDFs (text layer under 100 characters). A **text-based PDF of any length** extracts through the free local `pdf-parse` path with no page limit — so the cap never affects born-digital documents, which are the common case. The only thing it blocks is a *scanned* PDF longer than 10 pages, which returns HTTP 413.
+
+Second, having a limit is completely normal — every OCR service imposes page or size limits for cost and latency. Google Cloud Vision caps async PDF OCR at 2,000 pages (and sync requests far lower); AWS Textract's synchronous API handles only 1 page (multi-page requires the async job API); Azure Document Intelligence's free tier processes only the first 2 pages. The question is only where you set the threshold.
+
+I set it conservatively at 10 because my OCR runs through a **general-purpose multimodal model**, not a dedicated OCR engine — it's pricier per page (~1.41 US cent per extraction, rising with page count) and has no batch mode, so an uncapped scanned document is an unbounded cost. The correct production fix isn't to remove the cap but to swap in a dedicated OCR service (Tesseract or a cloud OCR API), which I list in §8.2.2 future work. For a text-layer document, even a very long one, the summary input is bounded instead by the 12,000-character truncation, not by pages.
 
 ### Q: What about PDFs with text layers that are structurally broken — like slide decks or LaTeX Beamer?
 
@@ -344,7 +362,7 @@ DocuSign and Adobe Sign use **click-to-sign** with audit-trail-based assurance (
 
 ### Q: How do you prevent SQL injection?
 
-Every query uses parameterized statements through the Supabase client (which uses postgres-js under the hood). String concatenation into SQL never happens in the application code. The admin search feature uses `.ilike('title', `%${query}%`)` which the Supabase client parameterizes — the query string is bound, not concatenated. Tested with `'; DROP TABLE--` as a search term; safely treated as a literal (Table 7.3).
+The application never builds SQL by string concatenation. All database access goes through the Supabase client's query builder (`.eq()`, `.ilike()`, `.in()`, …), which sends the values as bound parameters over PostgREST — they are matched against columns, never interpreted as SQL. The admin search feature uses `.ilike('title', `%${query}%`)`; the `query` string is bound as a parameter, not spliced into the statement. Tested with `'; DROP TABLE--` as a search term; safely treated as a literal (Table 7.3).
 
 ### Q: How do you prevent XSS?
 
@@ -360,7 +378,7 @@ Admin compromise is a serious incident. The admin can read all documents, delete
 
 ### Q: How do you handle file upload attacks?
 
-The pipeline is staging-then-validate. The client uploads to a staging path; the server uses HTTP Range to download only the first 1KB and checks for the PDF magic bytes `%PDF-`. Files that don't start with `%PDF-` are deleted from staging and the request returns 400. Size is checked at upload time (10MB limit) and re-validated on the server via Content-Length on the Range request. A `.exe` renamed to `.pdf` is caught (Table 7.3). Path traversal is prevented because the file path is constructed server-side as `${user.id}/${doc.id}/${timestamp}-${sanitized_name}`, never accepting user-provided paths.
+The pipeline is staging-then-validate. The client uploads to a staging path; the server requests a tiny HTTP Range (`bytes=0-7`) so it downloads only the first few bytes, and checks that they begin with the PDF magic bytes `%PDF-` (first 5 bytes). Files that don't are deleted from staging and the request returns 400. Total size is read from the `Content-Range` header returned with the Range response and re-validated against the 10MB limit on the server (not trusting the client's pre-flight check). A `.exe` renamed to `.pdf` is caught (Table 7.3). Path traversal is prevented because the file path is constructed server-side as `${user.id}/${doc.id}/${timestamp}-${sanitized_name}`, never accepting user-provided paths.
 
 ### Q: What's the worst-case attack against this system?
 
@@ -372,7 +390,7 @@ The single most damaging attack would be **a successful XSS combined with a Wind
 
 ### Q: Walk us through your performance numbers (Table 7.2).
 
-Dashboard load: ~600ms after query parallelization. Document detail: ~700ms including PDF render. AI summary on a 10-page document: ~4.2 seconds, with most time in the OpenAI API call. AI Q&A: ~2.8 seconds. Verify Integrity: ~1.1 seconds (hash recomputation dominated). WebAuthn signature verify on the server: ~150ms. All measured on a dev laptop with Intel Core i7, 16GB RAM.
+Dashboard load: ~600ms after query parallelization. Document detail: ~700ms including PDF render. AI summary on a 10-page document: ~4.2 seconds, with most time in the OpenAI API call. AI Q&A: ~2.8 seconds. Verify Integrity: ~1.1 seconds (hash recomputation dominated). WebAuthn signature verify on the server: ~150ms. All measured against a **production build** (`next build` + `next start`) on a laptop with an **AMD Ryzen 7 6800H, 32GB RAM**, Supabase in the Singapore region — matching Table 7.2 in the report. (Say "production build," not "dev mode" — dev mode numbers would be misleadingly slow and an examiner may ask.)
 
 ### Q: What's the content_hash caching for?
 

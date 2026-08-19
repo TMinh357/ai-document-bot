@@ -286,6 +286,54 @@ ROLLBACK;
 ```
 Swap the `sub` UUID for the user being impersonated. Each `SET LOCAL` is bounded to the transaction, so `ROLLBACK` cleanly resets the session.
 
+## AI rate limiting (per-user)
+
+The three AI routes (`ai-summary`, `ai-chat`, `extract-text`) call OpenAI, which the project pays for. To stop a runaway client loop or an abusive user from burning the OpenAI budget, each user is capped at a fixed number of AI calls per time window. **Default: 20 calls per 10 minutes per user**, shared across all three routes (the cost we care about is total OpenAI calls per person, not per endpoint). Overridable via `AI_RATE_LIMIT_MAX` and `AI_RATE_LIMIT_WINDOW_SECONDS` env vars.
+
+- **Why Postgres, not in-memory**: the app runs on stateless serverless functions (Vercel). A module-scope counter resets on every cold start and isn't shared across concurrent instances, so it wouldn't actually limit anything. A shared, durable Postgres counter does — and the rows are auditable.
+- **Atomic check-and-increment**: `increment_ai_usage()` is a `SECURITY DEFINER` function that increments the current window's counter and reports allow/remaining in a single statement, so two concurrent requests can't both read "4" and both decide they're under the limit.
+- **Strategy**: fixed-window counter (one row per `(user_id, window_start)`). Trade-off: allows a burst across the window boundary (up to ~2× the limit at the seam). A sliding-window log would be more precise but needs per-request rows + cleanup; fixed-window is the standard pragmatic choice. Documented as a future refinement.
+- **Fails open**: if the limiter's own DB call errors, the request is logged and allowed. A limiter outage must never take down the core AI feature.
+- **Client contract**: enforced in `lib/rate-limit.ts` (`enforceAiRateLimit`) right after the auth guard in each route. On exceed, returns **429** with a `Retry-After` header and a human message ("…try again in about N minutes"). This reuses the 429 status already used for OpenAI's upstream rate limit, but with a distinct message so the two cases are distinguishable.
+
+The `ai_rate_limits` table has **RLS enabled with no policies** — only the service-role client and the `SECURITY DEFINER` function may touch it, so users can't read or forge their own counters (same isolation pattern as other privileged writes).
+
+Schema migration (run once in Supabase SQL editor — full SQL in `migrations/2026-06-15-ai-rate-limit.sql`):
+```sql
+CREATE TABLE IF NOT EXISTS ai_rate_limits (
+  user_id      uuid        NOT NULL,
+  window_start timestamptz NOT NULL,
+  count        integer     NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, window_start)
+);
+ALTER TABLE ai_rate_limits ENABLE ROW LEVEL SECURITY;
+
+CREATE OR REPLACE FUNCTION increment_ai_usage(
+  p_user_id uuid, p_limit integer, p_window_seconds integer
+)
+RETURNS TABLE (allowed boolean, remaining integer, reset_at timestamptz)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  v_window_start timestamptz;
+  v_count        integer;
+BEGIN
+  v_window_start := to_timestamp(
+    floor(extract(epoch FROM now()) / p_window_seconds) * p_window_seconds
+  );
+  INSERT INTO ai_rate_limits (user_id, window_start, count)
+  VALUES (p_user_id, v_window_start, 1)
+  ON CONFLICT (user_id, window_start)
+  DO UPDATE SET count = ai_rate_limits.count + 1
+  RETURNING count INTO v_count;
+  allowed   := v_count <= p_limit;
+  remaining := greatest(p_limit - v_count, 0);
+  reset_at  := v_window_start + make_interval(secs => p_window_seconds);
+  RETURN NEXT;
+END;
+$$;
+```
+
 ## Realtime live updates
 
 Supabase Realtime broadcasts row-level INSERT / UPDATE / DELETE events over websockets, gated by the same RLS policies that govern SELECT. Two client components subscribe:

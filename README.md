@@ -2,10 +2,11 @@
 
 A document-review SaaS where employees submit PDFs, reviewers approve or reject with passage-level comments, and admins manage the system. Includes an OpenAI-powered assistant for summarization and Q&A, plus digital signature with integrity verification.
 
-> **Graduation project** — Vietnamese university, 2026.
+> **Graduation project** — Trần Minh (23BI14290), University of Science and Technology of Hanoi, 2026.
 
-- **Live demo**: <!-- TODO:https://ai-document-bot.vercel.app/
-- **Source**: <!-- TODO: https://github.com/TMinh357/ai-document-bot
+- **Live demo**: https://ai-document-bot.vercel.app/
+
+See [`INSTALL.md`](./INSTALL.md) for step-by-step setup and run instructions.
 
 ---
 
@@ -16,13 +17,14 @@ A document-review SaaS where employees submit PDFs, reviewers approve or reject 
 - **Multi-reviewer rounds** — submitter picks N reviewers per round; document is approved only when *all* reviewers approve, rejected immediately if any reject. Resubmission opens a new round with full history preserved.
 - **Inline PDF viewer** with passage-level highlights and comments (`react-pdf` + page-relative bounding-rect coordinates so highlights survive zoom/resize).
 - **AI Assistant** (real OpenAI, not mocked) — extract text, generate summary / key points / risk notes via structured-output JSON schema, ask grounded questions about the document.
-- **Digital signature** — SHA-256 hash stored on approval; verify-integrity button recomputes and compares; print-friendly certificate page.
+- **Multi-party digital signatures** — WebAuthn / FIDO2 with hardware-bound TPM keys (ECDSA P-256). The owner signs at submission and each reviewer signs at approval, using the file's SHA-256 hash as the signing challenge. A verify-integrity button and a printable certificate page re-check every signature, reporting hash-match and cryptographic validity separately so post-signing tampering is detectable.
 - **Review SLAs** — submitter picks a deadline; dashboard color-codes overdue (red) / due-soon (amber) / normal (teal); lazy in-app reminders fire when reviewers load the dashboard.
-- **Notifications** — bell icon in header with unread badge + dropdown; in-app reminders for review assignment, progress, overdue, approval, rejection.
+- **Notifications** — header bell with unread badge + dropdown, updated live via Supabase Realtime; in-app reminders for review assignment, progress, overdue, approval, and rejection, mirrored to email through Brevo.
+- **Per-user AI rate limiting** — the AI endpoints share a Postgres-backed fixed-window limit (default 20 calls / 10 min per user) to bound OpenAI cost; fails open so a limiter fault never disables the feature.
 - **Admin panel** — user role management, document oversight (with cascade delete), audit logs with filters, advanced search across extracted document text.
 - **Dashboard analytics** — CSS-only charts (no library): documents by status, documents by month, approval/rejection ratio.
 
-For the full feature inventory, schema details, and architectural decisions, see [`PROJECT_STATE.md`](./PROJECT_STATE.md).
+For setup and run instructions, see [`INSTALL.md`](./INSTALL.md).
 
 ---
 
@@ -109,7 +111,7 @@ graph TD
    OPENAI_API_KEY=sk-...
    OPENAI_MODEL=gpt-5.4-mini
    ```
-3. Apply database migrations. The full SQL for tables, RLS policies, and the schema additions used by this project is documented inline in [`PROJECT_STATE.md`](./PROJECT_STATE.md) under the schema-migration code blocks. Run each block once in the Supabase SQL editor.
+3. Set up the database. [`SUPABASE_CONTEXT.md`](./SUPABASE_CONTEXT.md) documents the full schema (tables, columns, foreign keys, RLS policies, and storage layout); the [`migrations/`](./migrations) folder holds the runnable SQL for the signing, content-hash, and AI-rate-limit additions. Apply the schema in the Supabase SQL editor, then run each migration file once.
 4. Run the dev server:
    ```bash
    npm run dev
@@ -137,33 +139,20 @@ lib/
   openai.ts                 OpenAI client wrapper (structured outputs, error mapping)
   pdf-validation.ts         Magic-byte + size validation via Range request
   review-reminders.ts       Lazy overdue-reminder fanout
+  rate-limit.ts             Per-user AI rate limiting (Postgres-backed)
+  webauthn/                 WebAuthn config, verification, AAGUID registry
   supabase/                 SSR + admin clients, auth helpers
-PROJECT_STATE.md            Living spec — features, schema migrations, decisions
-SUPABASE_CONTEXT.md         DB schema + RLS policy snapshot
-AGENTS.md                   Next.js 16 caveat reminder for AI coding assistants
-CLAUDE.md                   Workflow rules for AI coding assistants
+migrations/                 Runnable SQL for signing, content-hash, rate-limit
+INSTALL.md                  Setup + run instructions
+SUPABASE_CONTEXT.md         DB schema + RLS policy reference
 ```
 
 ---
 
 ## Documentation
 
-- [`PROJECT_STATE.md`](./PROJECT_STATE.md) — single-source-of-truth project spec; read this first when extending the project.
-- [`SUPABASE_CONTEXT.md`](./SUPABASE_CONTEXT.md) — database schema, foreign keys, RLS policies, sample data.
-- [`AGENTS.md`](./AGENTS.md) — note for AI coding assistants about Next.js 16 breaking changes.
-- [`CLAUDE.md`](./CLAUDE.md) — workflow rules used during development.
-
----
-
-## Screenshots
-
-<!-- TODO: drop 2-3 PNGs into a /docs/screenshots folder and reference them here, e.g.:
-
-![Dashboard](docs/screenshots/dashboard.png)
-![Document detail with inline PDF + highlights](docs/screenshots/document-detail.png)
-![AI summary + Q&A](docs/screenshots/ai-workspace.png)
-
--->
+- [`INSTALL.md`](./INSTALL.md) — setup and run instructions (live demo or local from source).
+- [`SUPABASE_CONTEXT.md`](./SUPABASE_CONTEXT.md) — database schema, foreign keys, and RLS policies.
 
 ---
 
