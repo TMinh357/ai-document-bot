@@ -68,6 +68,18 @@ function roleHeading(role: string | null): string {
   return "Legacy Signature";
 }
 
+function signerContext(signature: VerifiedSignature): string | null {
+  if (!signature.signer.role) return null;
+  const academicRole = formatRoleLabel(signature.signer.role);
+  if (
+    signature.signature_role === "reviewer_approval" &&
+    signature.signer.role !== "reviewer"
+  ) {
+    return `Academic role: ${academicRole} - Acting as assigned reviewer`;
+  }
+  return `Academic role: ${academicRole}`;
+}
+
 export default async function CertificatePage({ params }: PageProps) {
   const { id } = await params;
 
@@ -462,6 +474,7 @@ function SignaturePanel({ signature }: { signature: VerifiedSignature }) {
   const authName = signature.isWebAuthn
     ? aaguidToName(signature.signer.aaguid)
     : null;
+  const context = signerContext(signature);
   const flags = signature.decodedAuthData?.flags;
   const counter = signature.decodedAuthData?.counter;
 
@@ -476,9 +489,7 @@ function SignaturePanel({ signature }: { signature: VerifiedSignature }) {
             {signature.signer.name}
           </p>
           <p className="text-xs text-gray-500">
-            {signature.signer.role && (
-              <>Role: {formatRoleLabel(signature.signer.role)} - </>
-            )}
+            {context && <>{context} - </>}
             Signed at <FormattedDate value={signature.signed_at} />
             {signature.round_no ? ` - Round ${signature.round_no}` : ""}
           </p>
@@ -519,11 +530,7 @@ function SignaturePanel({ signature }: { signature: VerifiedSignature }) {
           </p>
           <Field
             label="Authenticator"
-            value={
-              authName
-                ? `${authName} / platform authenticator`
-                : "Platform authenticator"
-            }
+            value={authName || "Platform authenticator"}
           />
           <Field
             label="Credential scope"

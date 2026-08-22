@@ -14,6 +14,7 @@ import DocumentTimeline, {
 } from "@/components/DocumentTimeline";
 import FormattedDate from "@/components/FormattedDate";
 import { requireUser } from "@/lib/supabase/auth";
+import { REVIEW_CONTEXT_FALLBACK } from "@/lib/document-copy";
 
 type PageProps = {
   params: Promise<{
@@ -27,6 +28,12 @@ type ReviewerProfile = {
   role: string;
 };
 
+type VerificationMetadata = {
+  file_missing?: boolean;
+  all_hashes_match?: boolean;
+  all_crypto_valid?: boolean;
+};
+
 function workflowStepClass(status: string): string {
   if (status === "Completed") {
     return "border-green-200 bg-green-50 text-green-800";
@@ -35,6 +42,16 @@ function workflowStepClass(status: string): string {
     return "border-teal-300 bg-teal-50 text-teal-900";
   }
   return "border-gray-200 bg-white text-gray-500";
+}
+
+function isCompletedVerification(metadata: unknown): boolean {
+  if (!metadata || typeof metadata !== "object") return false;
+  const verification = metadata as VerificationMetadata;
+  return (
+    verification.file_missing === false &&
+    verification.all_hashes_match === true &&
+    verification.all_crypto_valid === true
+  );
 }
 
 export default async function DocumentDetailPage({ params }: PageProps) {
@@ -54,6 +71,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     { data: latestAIResult },
     { data: aiMessages },
     { data: signatures },
+    { data: latestVerificationLog },
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -113,6 +131,15 @@ export default async function DocumentDetailPage({ params }: PageProps) {
       )
       .eq("document_id", id)
       .order("signed_at", { ascending: false }),
+    supabase
+      .from("audit_logs")
+      .select("metadata, created_at")
+      .eq("target_table", "documents")
+      .eq("target_id", id)
+      .in("action", ["VERIFY_INTEGRITY", "VERIFY_DOCUMENT_SIGNATURE"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const webAuthnCredentialId = currentProfile?.webauthn_credential_id ?? null;
@@ -339,6 +366,14 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     (a) => a.status === "approved" || a.status === "rejected"
   );
   const hasSignatureEvidence = (signatures || []).length > 0;
+  const hasCompletedVerification = isCompletedVerification(
+    latestVerificationLog?.metadata
+  );
+  const verificationStatus = hasCompletedVerification
+    ? "Verified"
+    : document.status === "approved" && hasSignatureEvidence
+      ? "Ready to verify"
+      : "Not available yet";
   const workflowSteps = [
     {
       label: "Upload",
@@ -382,7 +417,9 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     {
       label: "Verify",
       status:
-        document.status === "approved" && hasSignatureEvidence
+        hasCompletedVerification
+          ? "Completed"
+          : document.status === "approved" && hasSignatureEvidence
           ? "Current"
           : "Not started",
     },
@@ -418,7 +455,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
               </h1>
 
               <p className="mt-3 max-w-3xl text-gray-600">
-                {document.description || "No review context provided yet"}
+                {document.description || REVIEW_CONTEXT_FALLBACK}
               </p>
             </div>
 
@@ -462,6 +499,12 @@ export default async function DocumentDetailPage({ params }: PageProps) {
                 </div>
               ))}
             </div>
+            {document.status === "approved" && hasSignatureEvidence && (
+              <p className="mt-3 text-sm font-medium text-gray-700">
+                Verification status:{" "}
+                <span className="text-teal-700">{verificationStatus}</span>
+              </p>
+            )}
           </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-3">

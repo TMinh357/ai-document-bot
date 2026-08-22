@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import FormattedDate from "./FormattedDate";
 
 type VerifiedSignature = {
@@ -29,7 +30,7 @@ type SignDocumentPanelProps = {
 };
 
 function roleLabel(role: string | null): string {
-  if (role === "owner_submission") return "Owner submission";
+  if (role === "owner_submission") return "Submitter submission";
   if (role === "reviewer_approval") return "Reviewer approval";
   return "Legacy signature";
 }
@@ -38,6 +39,7 @@ export default function SignDocumentPanel({
   documentId,
   signatureCount,
 }: SignDocumentPanelProps) {
+  const router = useRouter();
   const [message, setMessage] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
@@ -62,6 +64,20 @@ export default function SignDocumentPanel({
     }
 
     setVerifyResult(data);
+    const verified =
+      !data.fileMissing &&
+      data.signatures.every(
+        (signature: VerifiedSignature) => signature.hashMatch
+      ) &&
+      data.signatures
+        .filter((signature: VerifiedSignature) => signature.cryptoSignaturePresent)
+        .every(
+          (signature: VerifiedSignature) =>
+            signature.cryptoSignatureValid === true
+        );
+    if (verified) {
+      router.refresh();
+    }
     setIsVerifying(false);
   }
 

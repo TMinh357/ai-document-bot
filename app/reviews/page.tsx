@@ -6,6 +6,7 @@ import ActiveLink from "@/components/ActiveLink";
 import FormattedDate from "@/components/FormattedDate";
 import { requireRole } from "@/lib/supabase/auth";
 import { fireOverdueReminders } from "@/lib/review-reminders";
+import { REVIEW_CONTEXT_FALLBACK } from "@/lib/document-copy";
 
 const NEAR_DUE_HOURS = 24;
 
@@ -146,7 +147,7 @@ export default async function ReviewsPage() {
                       </div>
 
                       <p className="muted-copy mt-2 text-sm leading-6">
-                        {document.description || "No review context provided yet"}
+                        {document.description || REVIEW_CONTEXT_FALLBACK}
                       </p>
 
                       <p className="mt-2 text-xs uppercase tracking-[0.14em] text-gray-500">

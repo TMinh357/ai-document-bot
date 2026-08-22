@@ -26,6 +26,7 @@ const ACTION_LABELS: Record<string, string> = {
   APPROVE_DOCUMENT: "Reviewer approved document",
   REJECT_DOCUMENT: "Reviewer rejected document",
   VERIFY_INTEGRITY: "Document integrity verified",
+  VERIFY_DOCUMENT_SIGNATURE: "Document integrity verified",
   ADMIN_CHANGE_USER_ROLE: "Administrator changed academic role",
 };
 

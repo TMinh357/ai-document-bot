@@ -174,10 +174,9 @@ export async function GET(_request: Request, context: RouteContext) {
     })
   );
 
-  // Fire-and-forget audit log — never block the response on the insert.
-  void supabase.from("audit_logs").insert({
+  await supabase.from("audit_logs").insert({
     user_id: user.id,
-    action: "VERIFY_DOCUMENT_SIGNATURE",
+    action: "VERIFY_INTEGRITY",
     target_table: "documents",
     target_id: id,
     metadata: {

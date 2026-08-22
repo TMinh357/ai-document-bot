@@ -7,6 +7,7 @@ import StatusBadge from "@/components/StatusBadge";
 import EmptyState from "@/components/EmptyState";
 import FormattedDate from "@/components/FormattedDate";
 import { requireUser } from "@/lib/supabase/auth";
+import { REVIEW_CONTEXT_FALLBACK } from "@/lib/document-copy";
 
 type PageProps = {
   searchParams: Promise<{ status?: string }>;
@@ -147,7 +148,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                       {document.title}
                     </h3>
                     <p className="muted-copy mt-2 text-sm leading-6">
-                      {document.description || "No review context provided yet"}
+                      {document.description || REVIEW_CONTEXT_FALLBACK}
                     </p>
                     <p className="mt-2 text-xs uppercase tracking-[0.14em] text-gray-500">
                       Created at: <FormattedDate value={document.created_at} />
