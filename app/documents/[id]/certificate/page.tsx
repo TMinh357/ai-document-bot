@@ -9,6 +9,7 @@ import FormattedDate from "@/components/FormattedDate";
 import { getExpectedOrigin, getRpId } from "@/lib/webauthn/config";
 import { hexToBase64Url } from "@/lib/webauthn/verify";
 import { aaguidToName } from "@/lib/webauthn/aaguid-registry";
+import { formatRoleLabel } from "@/lib/role-labels";
 import {
   decodeAuthenticatorData,
   type DecodedAuthenticatorData,
@@ -62,7 +63,7 @@ type AuthenticatorTransport =
   | "usb";
 
 function roleHeading(role: string | null): string {
-  if (role === "owner_submission") return "Owner Submission";
+  if (role === "owner_submission") return "Submitter Submission";
   if (role === "reviewer_approval") return "Reviewer Approval";
   return "Legacy Signature";
 }
@@ -117,7 +118,7 @@ export default async function CertificatePage({ params }: PageProps) {
               href={`/documents/${id}`}
               className="text-sm font-medium text-blue-600 hover:underline"
             >
-              ← Back to Document
+              Back to Document
             </Link>
           </div>
 
@@ -129,7 +130,7 @@ export default async function CertificatePage({ params }: PageProps) {
               No signatures on record
             </h1>
             <p className="mt-3 text-gray-600">
-              The owner signs at submission and each reviewer signs their
+              The Submitter signs at submission and each reviewer signs their
               approval. No signatures have been recorded for this document
               yet.
             </p>
@@ -183,8 +184,8 @@ export default async function CertificatePage({ params }: PageProps) {
     }
   }
 
-  // Verify every signature in parallel — each WebAuthn verification is
-  // ~100–200ms of crypto work. Sequential loop over N signatures was the
+  // Verify every signature in parallel. Each WebAuthn verification is
+  // roughly 100-200ms of crypto work. Sequential loop over N signatures was the
   // bottleneck making this page take ~2.4s of server work.
   const verified: VerifiedSignature[] = await Promise.all(
     (signatures as SignatureRow[]).map(async (sig) => {
@@ -278,6 +279,14 @@ export default async function CertificatePage({ params }: PageProps) {
   const allCryptoValid = verified
     .filter((v) => v.signature_bytes)
     .every((v) => v.cryptoSignatureValid === true);
+  const workflowSummary =
+    document.status === "approved"
+      ? "Completed - all assigned reviewers approved and signed."
+      : document.status === "pending"
+        ? "Pending review - reviewer approval is still required."
+        : document.status === "rejected"
+          ? "Rejected - a revised version is required before approval."
+          : "Draft - not submitted for reviewer approval yet.";
 
   const verifiedAt = new Date();
 
@@ -289,7 +298,7 @@ export default async function CertificatePage({ params }: PageProps) {
             href={`/documents/${id}`}
             className="text-sm font-medium text-blue-600 hover:underline"
           >
-            ← Back to Document
+            Back to Document
           </Link>
 
           <PrintCertificateButton />
@@ -304,17 +313,15 @@ export default async function CertificatePage({ params }: PageProps) {
           <div className="relative">
             <div className="text-center">
               <p className="text-xs font-bold uppercase tracking-[0.5em] text-teal-700">
-                Certificate of Signatures
+                Technical Verification Record
               </p>
               <h1 className="mt-4 font-serif text-4xl font-bold text-gray-900">
-                Document Signed
+                Signature Certificate
               </h1>
               <p className="muted-copy mt-3 text-sm">
-                This certificate attests that the document below was signed
-                using WebAuthn digital signatures (Windows Hello / platform
-                authenticator) bound to each signer&apos;s device. The owner
-                signs at submission; each approving reviewer signs their
-                approval.
+                This certificate records the WebAuthn signatures currently
+                attached to this document version. A document is fully approved
+                only after all assigned reviewers have approved and signed.
               </p>
             </div>
 
@@ -347,7 +354,7 @@ export default async function CertificatePage({ params }: PageProps) {
                     Signatures recorded
                   </p>
                   <p className="mt-2 text-sm font-semibold text-gray-900">
-                    {verified.length} ({ownerSig ? "1 owner" : "0 owner"},{" "}
+                    {verified.length} ({ownerSig ? "1 Submitter" : "0 Submitter"},{" "}
                     {reviewerSigs.length} reviewer
                     {reviewerSigs.length === 1 ? "" : "s"})
                   </p>
@@ -373,12 +380,54 @@ export default async function CertificatePage({ params }: PageProps) {
                 {verifyError && (
                   <p className="mt-1 text-xs text-yellow-800">{verifyError}</p>
                 )}
-                {currentHash && (
-                  <p className="mt-3 break-all rounded-xl bg-white p-3 font-mono text-xs text-gray-700 ring-1 ring-gray-200">
-                    Current file hash: {currentHash}
-                  </p>
-                )}
               </div>
+
+              <div className="grid gap-3 rounded-2xl border border-gray-200 bg-slate-50 p-5 text-sm md:grid-cols-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
+                    File changed?
+                  </p>
+                  <p className="mt-1 font-medium text-gray-900">
+                    {verifyError
+                      ? "The current file could not be checked."
+                      : allHashesMatch
+                      ? "Current file matches the signed file hash."
+                      : "Current file differs from at least one signed hash."}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
+                    Who signed?
+                  </p>
+                  <p className="mt-1 font-medium text-gray-900">
+                    {ownerSig ? "1 Submitter signature" : "0 Submitter signatures"},{" "}
+                    {reviewerSigs.length} Reviewer signature
+                    {reviewerSigs.length === 1 ? "" : "s"}.
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
+                    Workflow complete?
+                  </p>
+                  <p className="mt-1 font-medium text-gray-900">
+                    {workflowSummary}
+                  </p>
+                </div>
+              </div>
+
+              {currentHash && (
+                <details className="rounded-2xl border border-gray-200 bg-slate-50 p-4">
+                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                    Current file technical details
+                  </summary>
+                  <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">
+                    Current SHA-256 hash
+                  </p>
+                  <p className="mt-1 break-all rounded-xl bg-white p-3 font-mono text-[11px] text-gray-700 ring-1 ring-gray-200">
+                    {currentHash}
+                  </p>
+                </details>
+              )}
 
               {ownerSig && <SignaturePanel signature={ownerSig} />}
               {reviewerSigs.map((sig) => (
@@ -428,10 +477,10 @@ function SignaturePanel({ signature }: { signature: VerifiedSignature }) {
           </p>
           <p className="text-xs text-gray-500">
             {signature.signer.role && (
-              <>Role: {signature.signer.role} · </>
+              <>Role: {formatRoleLabel(signature.signer.role)} - </>
             )}
             Signed at <FormattedDate value={signature.signed_at} />
-            {signature.round_no ? ` · Round ${signature.round_no}` : ""}
+            {signature.round_no ? ` - Round ${signature.round_no}` : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -468,23 +517,30 @@ function SignaturePanel({ signature }: { signature: VerifiedSignature }) {
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-indigo-900 md:col-span-2">
             Authentication evidence
           </p>
-          <Field label="Authenticator" value={authName ?? "Unknown"} />
           <Field
-            label="Device type"
+            label="Authenticator"
             value={
-              signature.signer.deviceType === "singleDevice"
-                ? "Single device (hardware-bound)"
-                : signature.signer.deviceType === "multiDevice"
-                  ? "Multi-device (synced credential)"
-                  : "—"
+              authName
+                ? `${authName} / platform authenticator`
+                : "Platform authenticator"
             }
           />
           <Field
-            label="User verified"
+            label="Credential scope"
+            value={
+              signature.signer.deviceType === "singleDevice"
+                ? "Single-device credential; hardware-backed status depends on the authenticator and operating environment."
+                : signature.signer.deviceType === "multiDevice"
+                  ? "Multi-device credential; may be synced by the platform provider."
+                  : "Credential scope not reported."
+            }
+          />
+          <Field
+            label="User verification"
             value={
               flags?.userVerified
-                ? "Yes — PIN / biometric confirmed at signing"
-                : "No"
+                ? "PIN or biometric verification reported by the authenticator."
+                : "Not reported."
             }
             ok={flags?.userVerified}
           />
@@ -497,13 +553,13 @@ function SignaturePanel({ signature }: { signature: VerifiedSignature }) {
             label="Backup eligible"
             value={
               flags?.backupEligible
-                ? "Yes (key can be backed up)"
-                : "No (locked to this authenticator)"
+                ? "Yes (the credential may be backed up by the platform)"
+                : "No backup flag reported"
             }
           />
           <Field
             label="Sign counter"
-            value={counter != null ? counter.toString() : "—"}
+            value={counter != null ? counter.toString() : "Not reported"}
           />
           {signature.signer.aaguid && (
             <Field
@@ -525,25 +581,30 @@ function SignaturePanel({ signature }: { signature: VerifiedSignature }) {
         </div>
       )}
 
-      <div className="mt-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">
-          SHA-256 hash signed
-        </p>
-        <p className="mt-1 break-all rounded-xl bg-slate-50 p-3 font-mono text-[11px] text-gray-700 ring-1 ring-gray-200">
-          {signature.signature_hash}
-        </p>
-      </div>
-
-      {hasCrypto && (
+      <details className="mt-3 rounded-xl border border-gray-200 bg-slate-50 p-3">
+        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+          Technical details
+        </summary>
         <div className="mt-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">
-            Signature bytes
+            SHA-256 hash signed
           </p>
-          <p className="mt-1 break-all rounded-xl bg-slate-50 p-3 font-mono text-[10px] text-gray-700 ring-1 ring-gray-200">
-            {signature.signature_bytes}
+          <p className="mt-1 break-all rounded-xl bg-white p-3 font-mono text-[11px] text-gray-700 ring-1 ring-gray-200">
+            {signature.signature_hash}
           </p>
         </div>
-      )}
+
+        {hasCrypto && (
+          <div className="mt-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">
+              Signature bytes
+            </p>
+            <p className="mt-1 break-all rounded-xl bg-white p-3 font-mono text-[10px] text-gray-700 ring-1 ring-gray-200">
+              {signature.signature_bytes}
+            </p>
+          </div>
+        )}
+      </details>
     </section>
   );
 }

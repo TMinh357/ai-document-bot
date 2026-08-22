@@ -1,3 +1,5 @@
+import { formatRoleLabel } from "@/lib/role-labels";
+
 type UserBadgeProps = {
   fullName: string | null | undefined;
   email: string | null | undefined;
@@ -18,9 +20,9 @@ export default function UserBadge({ fullName, email, role }: UserBadgeProps) {
         <p className="text-sm font-semibold text-gray-900">{displayName}</p>
         <p className="text-[11px] text-gray-500">
           {email ?? ""}
-          {email && " · "}
+          {email && " - "}
           <span className="font-medium uppercase tracking-wide text-teal-700">
-            {role}
+            {formatRoleLabel(role)}
           </span>
         </p>
       </div>

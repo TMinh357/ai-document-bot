@@ -87,11 +87,11 @@ export default function SignDocumentPanel({
           </h2>
 
           <p className="mt-2 max-w-2xl text-sm text-gray-600">
-            Each party signs as part of the workflow: the owner signs at
+            Each party signs as part of the workflow: the submitter signs at
             submission, and each approving reviewer signs their approval. Verify
             recomputes the current file&apos;s SHA-256 hash and checks both the
-            stored hashes and the ECDSA signatures against each signer&apos;s
-            public key.
+            stored hashes and the WebAuthn signatures against each signer&apos;s
+            registered public key.
           </p>
         </div>
 
@@ -117,7 +117,7 @@ export default function SignDocumentPanel({
 
       {!hasSignatures && (
         <p className="mt-4 rounded-xl bg-yellow-50 p-3 text-sm text-yellow-800">
-          No signatures recorded yet. The owner signs at submission; each
+          No signatures recorded yet. The submitter signs at submission; each
           reviewer signs when they approve.
         </p>
       )}
@@ -143,7 +143,7 @@ export default function SignDocumentPanel({
               }`}
               aria-hidden
             >
-              {overallValid ? "✓" : "✗"}
+              {overallValid ? "OK" : "!"}
             </span>
 
             <div>
@@ -217,7 +217,7 @@ export default function SignDocumentPanel({
                       {sig.signerName || sig.signerId}
                     </p>
                     <p className="text-xs text-gray-500">
-                      {roleLabel(sig.signatureRole)} · Signed at{" "}
+                      {roleLabel(sig.signatureRole)} - Signed at{" "}
                       <FormattedDate value={sig.signedAt} />
                     </p>
                   </div>

@@ -1,6 +1,6 @@
 # AI Document Review Assistant
 
-A document-review SaaS where employees submit PDFs, reviewers approve or reject with passage-level comments, and admins manage the system. Includes an OpenAI-powered assistant for summarization and Q&A, plus digital signature with integrity verification.
+A lightweight internal document-approval system for university departments and research groups that still review academic PDFs through email, chat, or shared folders. Students and researchers upload proposals, reports, and academic documents; assigned supervisors or department reviewers approve or reject them in tracked review rounds; administrators manage users and audit history. The system adds an OpenAI-powered reading assistant plus WebAuthn-based integrity verification, so reviewers can understand documents faster and later prove whether an approved file was changed.
 
 > **Graduation project** — Trần Minh (23BI14290), University of Science and Technology of Hanoi, 2026.
 
@@ -10,14 +10,39 @@ See [`INSTALL.md`](./INSTALL.md) for step-by-step setup and run instructions.
 
 ---
 
+## Who this is for
+
+The primary users are academic teams that need accountability around internal PDF approvals but do not need the cost and complexity of an enterprise document-management suite:
+
+- **Students and researchers** submitting research proposals, internship reports, thesis-related documents, or academic progress reports.
+- **Supervisors** reviewing document content, leaving passage-level feedback, and approving or rejecting revisions.
+- **Department reviewers or academic committee members** performing final quality, completeness, or compliance checks.
+- **Administrators** managing accounts, roles, document visibility, and audit history.
+
+The project focuses on a practical gap: Google Drive or email can store and send files, but they do not provide a structured multi-reviewer approval round, version history tied to decisions, AI review assistance, audit logs, and post-approval tamper detection in one low-overhead workflow.
+
+## Demo scenario
+
+A typical defense/demo scenario is a university department approving a student research proposal:
+
+1. A student uploads the research proposal PDF and creates a draft document.
+2. The system validates that the upload is a real PDF before creating the database record.
+3. The submitter asks the AI assistant for a summary, key points, and risk notes before submission.
+4. The student selects a supervisor and a department reviewer, sets a deadline, then signs the file hash with Windows Hello.
+5. Reviewers receive notifications, read the PDF, add passage-level comments, and approve or reject.
+6. If revision is required, the student uploads a new version and resubmits while the previous round remains visible.
+7. When every reviewer approves, the document becomes final and the certificate page can verify both signer authenticity and file integrity.
+
+---
+
 ## Features
 
-- **Multi-role workflow** — `employee` / `reviewer` / `admin`, enforced at both the page level (auth helpers) and the database level (Postgres Row-Level Security).
+- **Multi-role workflow** — Submitter / Reviewer / Administrator in the UI, mapped to the implementation roles `employee` / `reviewer` / `admin` and enforced at both the page level (auth helpers) and the database level (Postgres Row-Level Security).
 - **Multi-version uploads** — every PDF round of revision is preserved; latest vs. superseded versions are clearly badged.
 - **Multi-reviewer rounds** — submitter picks N reviewers per round; document is approved only when *all* reviewers approve, rejected immediately if any reject. Resubmission opens a new round with full history preserved.
 - **Inline PDF viewer** with passage-level highlights and comments (`react-pdf` + page-relative bounding-rect coordinates so highlights survive zoom/resize).
 - **AI Assistant** (real OpenAI, not mocked) — extract text, generate summary / key points / risk notes via structured-output JSON schema, ask grounded questions about the document.
-- **Multi-party digital signatures** — WebAuthn / FIDO2 with hardware-bound TPM keys (ECDSA P-256). The owner signs at submission and each reviewer signs at approval, using the file's SHA-256 hash as the signing challenge. A verify-integrity button and a printable certificate page re-check every signature, reporting hash-match and cryptographic validity separately so post-signing tampering is detectable.
+- **Multi-party digital signatures** — WebAuthn / FIDO2 platform-credential signing. The Submitter signs at submission and each reviewer signs at approval, using the file's SHA-256 hash as the signing challenge. A verify-integrity button and a printable certificate page re-check every signature, reporting hash match and WebAuthn cryptographic validity separately so post-signing tampering is detectable.
 - **Review SLAs** — submitter picks a deadline; dashboard color-codes overdue (red) / due-soon (amber) / normal (teal); lazy in-app reminders fire when reviewers load the dashboard.
 - **Notifications** — header bell with unread badge + dropdown, updated live via Supabase Realtime; in-app reminders for review assignment, progress, overdue, approval, and rejection, mirrored to email through Brevo.
 - **Per-user AI rate limiting** — the AI endpoints share a Postgres-backed fixed-window limit (default 20 calls / 10 min per user) to bound OpenAI cost; fails open so a limiter fault never disables the feature.

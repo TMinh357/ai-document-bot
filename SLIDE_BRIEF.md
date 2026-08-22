@@ -9,8 +9,33 @@
 
 ---
 
+## Second-defense positioning
+
+Use this framing before the existing slide notes:
+
+An AI-assisted internal document approval system for university departments and research groups that still review academic PDFs through email, chat, or shared folders. Students and researchers upload proposals, reports, and academic documents; assigned supervisors and department reviewers approve or reject them in multi-round workflows; an OpenAI assistant summarizes each document and answers grounded questions about it. Every approved document carries a multi-party WebAuthn digital signature tied to the file hash, so the department can later verify both signer authenticity and whether the approved file was changed.
+
+The deck should make the target audience visible by Slide 2. Do not present the project as a generic enterprise SaaS or as a replacement for legal e-signature products. Present it as a focused academic workflow tool for departments and research groups that need more accountability than email or Google Drive, but less complexity than enterprise document-management software.
+
+Recommended Slide 2 changes:
+
+- Target setting: university departments and research groups reviewing academic PDFs.
+- Current workflow: email attachments, Google Drive/shared folders, chat messages, and informal approval replies.
+- Pain points: unclear supervisor/reviewer responsibility, scattered feedback/version history, no integrity guarantee, and no intelligent reading help.
+- Practical value: know who is responsible, which version was approved, what feedback was given, and whether the approved file later changed.
+
+Recommended optional Slide 2A:
+
+- Title: Target Users and Scenario.
+- Users: student/researcher, supervisor, department reviewer, administrator.
+- Scenario: a student submits a research proposal or internship report for supervisor and department review.
+- Visual: Student -> Supervisor -> Department reviewer -> approved certificate.
+
+---
+
+
 ## The 30-second framing (memorize this; it drives the whole deck)
-An AI-assisted document approval system for small organizations. Employees upload PDFs; reviewers approve or reject them in multi-round, multi-reviewer workflows; an OpenAI assistant summarizes each document and answers grounded questions about it. Every approved document carries a multi-party WebAuthn digital signature — one from the owner at submission, one from each reviewer at approval — with private keys bound to the device's TPM. Stack: Next.js 16 + Supabase (Postgres + RLS + Auth + Storage) + OpenAI, deployed on Vercel.
+An AI-assisted internal document approval system for university departments and research groups. Students or researchers upload academic PDFs such as research proposals and internship reports; supervisors and department reviewers approve or reject them in multi-round workflows; an OpenAI assistant summarizes each document and answers grounded questions about it. Every approved document carries multi-party WebAuthn signature evidence tied to the file hash, so the department can verify both approval responsibility and file integrity. Stack: Next.js 16 + Supabase (Postgres + RLS + Auth + Storage) + OpenAI, deployed on Vercel.
 
 Three pillars to repeat throughout: **Workflow · AI assistance · Hardware-bound signing.**
 
@@ -32,7 +57,7 @@ Three pillars to repeat throughout: **Workflow · AI assistance · Hardware-boun
 
 ## Slide 3 — What I Built (the three pillars) [0:50]
 - Three columns: **Multi-role Workflow** | **AI Assistant** | **Multi-party Digital Signing**.
-- One line each: employee / reviewer / admin with multi-round approval · summary + key points + risk notes + grounded Q&A · WebAuthn / TPM, owner + each reviewer.
+- One line each: Submitter / Reviewer / Administrator with multi-round approval · summary + key points + risk notes + grounded Q&A · WebAuthn signatures by the Submitter and each reviewer.
 - Visual: 3-column layout, one icon per pillar.
 - *Say: this is the whole project in one slide; the rest of the talk drills into each pillar, then shows results.*
 
@@ -55,11 +80,11 @@ Three pillars to repeat throughout: **Workflow · AI assistance · Hardware-boun
 
 ## Slide 7 — Digital Signing (THE CENTERPIECE — spend the most time here) [1:50]
 - Multi-party WebAuthn / FIDO2. The owner signs at submission; each reviewer signs at approval.
-- Keys are **TPM-bound and non-extractable**; every signature requires a fresh Windows Hello PIN/biometric (userVerification: "required").
+- Signing uses a **registered WebAuthn platform credential**; every signature requests PIN or biometric user verification (`userVerification: "required"`).
 - The **file's SHA-256 hash is the WebAuthn challenge** → each signature is cryptographically bound to the exact file bytes.
-- Three guarantees: **authenticity · integrity · non-repudiation**. Even a fully compromised server admin cannot forge a signature — the server only ever stores public keys.
+- Three technical guarantees: **signer authenticity · file integrity · auditability**. A server admin cannot produce a valid WebAuthn assertion for another registered credential because the server only stores public keys.
 - Visual: a clean 3-step flow (Register key via Hello → Sign file hash → Server verifies with verifyAuthenticationResponse). Keep it simple.
-- *Say: contrast with "just a SHA-256 hash" (a database admin could swap both the file and the stored hash) and with keys held in the browser (an XSS attack could steal them). WebAuthn defeats both because the private key never leaves the TPM.* (Source: §3.6, §2.3)
+- *Say: contrast with "just a SHA-256 hash" (a database admin could swap both the file and the stored hash) and with browser-held keys (more exposed to XSS or local browser compromise). WebAuthn improves this because signing is delegated to the registered authenticator and verified server-side.* (Source: §3.6, §2.3)
 
 ## Slide 8 — Tamper Detection (the visual "wow") [1:30]
 - Two independent judgments per signature: **Hash Match / Mismatch** (did the file change?) AND **WebAuthn-ES256 Valid / Invalid** (is the signer authentic?).
@@ -96,7 +121,7 @@ Three pillars to repeat throughout: **Workflow · AI assistance · Hardware-boun
 - *Say: framing these as known trade-offs shows maturity. Note: a per-user AI rate limit is already implemented (Postgres-backed, 20 calls / 10 min, fails open).* (Source: §4.6, §5.2)
 
 ## Slide 14 — Conclusion [0:35]
-- One unified app integrates three normally-separate concerns — structured workflow, real LLM assistance, and hardware-bound multi-party signing — built end-to-end by a single student on free-tier infrastructure.
+- One unified app integrates three normally-separate concerns — structured workflow, real LLM assistance, and WebAuthn-based multi-party signing — built end-to-end by a single student on free-tier infrastructure.
 - Restate the three pillars; thank the panel; invite questions.
 - Visual: clean closing; optionally the three-pillar icons again.
 

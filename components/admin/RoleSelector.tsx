@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { formatRoleLabel } from "@/lib/role-labels";
 
 interface Props {
   userId: string;
@@ -45,9 +46,9 @@ export default function RoleSelector({ userId, currentRole, isSelf }: Props) {
         }}
         disabled={loading}
       >
-        <option value="employee">employee</option>
-        <option value="reviewer">reviewer</option>
-        <option value="admin">admin</option>
+        <option value="employee">{formatRoleLabel("employee")}</option>
+        <option value="reviewer">{formatRoleLabel("reviewer")}</option>
+        <option value="admin">{formatRoleLabel("admin")}</option>
       </select>
 
       <button

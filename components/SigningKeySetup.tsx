@@ -54,7 +54,7 @@ export default function SigningKeySetup({ onReady, onCancel }: Props) {
       }
       const options = await optionsRes.json();
 
-      // 2. Prompt the user (Windows Hello / Touch ID / biometric).
+      // 2. Prompt the user through the platform authenticator.
       const attestation = await startRegistration({ optionsJSON: options });
 
       // 3. Send the attestation to the server for verification + storage.
@@ -88,7 +88,7 @@ export default function SigningKeySetup({ onReady, onCancel }: Props) {
 
         {availability === "checking" && (
           <p className="mt-4 text-sm text-gray-600">
-            Checking your device for a platform authenticator…
+            Checking your device for a platform authenticator...
           </p>
         )}
 
@@ -106,11 +106,11 @@ export default function SigningKeySetup({ onReady, onCancel }: Props) {
           <div className="mt-4 space-y-3">
             <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
               <p className="font-semibold">
-                Windows Hello (or equivalent) is not set up on this device.
+                A platform authenticator is not available on this device.
               </p>
               <p className="mt-1">
-                Digital signing requires a platform authenticator: Windows Hello
-                on Windows, Touch ID on Mac, or biometric on phones / tablets.
+                Digital signing requires user verification through Windows
+                Hello, Touch ID, or a similar platform authenticator.
               </p>
             </div>
 
@@ -118,8 +118,8 @@ export default function SigningKeySetup({ onReady, onCancel }: Props) {
               <p className="font-semibold">How to enable Windows Hello:</p>
               <ol className="mt-2 list-decimal space-y-1 pl-5">
                 <li>
-                  Open <strong>Settings</strong> →{" "}
-                  <strong>Accounts</strong> →{" "}
+                  Open <strong>Settings</strong> -{" "}
+                  <strong>Accounts</strong> -{" "}
                   <strong>Sign-in options</strong>.
                 </li>
                 <li>
@@ -136,18 +136,17 @@ export default function SigningKeySetup({ onReady, onCancel }: Props) {
         {availability === "available" && (
           <>
             <p className="mt-3 text-sm text-gray-700">
-              Your browser will create a hardware-bound signing key using{" "}
-              <strong>Windows Hello</strong> (or Touch ID / platform biometric on
-              other devices). The key is stored in the device&apos;s secure
-              hardware (TPM) and physically cannot be extracted or exported.
-              Every future signing action will require your PIN, fingerprint, or
-              face to authenticate.
+              Your browser will create a WebAuthn platform credential using{" "}
+              <strong>Windows Hello</strong> or an equivalent authenticator.
+              Protection details depend on the device, browser, and operating
+              system. Every future signing action asks the authenticator to
+              verify the user before the system records approval evidence.
             </p>
 
             <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-gray-600">
-              <li>Bound to this physical device — proves it&apos;s actually you.</li>
-              <li>Requires biometric / PIN at every signing event.</li>
-              <li>Private key never leaves the device&apos;s TPM.</li>
+              <li>Uses a registered platform authenticator for signing.</li>
+              <li>Requires PIN or biometric user verification when available.</li>
+              <li>Records a signature over the current PDF hash.</li>
             </ul>
           </>
         )}
@@ -188,9 +187,7 @@ export default function SigningKeySetup({ onReady, onCancel }: Props) {
               disabled={busy}
               className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-50"
             >
-              {busy
-                ? "Waiting for Windows Hello..."
-                : "Set up with Windows Hello"}
+              {busy ? "Waiting for authenticator..." : "Set up signing key"}
             </button>
           )}
         </div>

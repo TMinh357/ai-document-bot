@@ -27,6 +27,16 @@ type ReviewerProfile = {
   role: string;
 };
 
+function workflowStepClass(status: string): string {
+  if (status === "Completed") {
+    return "border-green-200 bg-green-50 text-green-800";
+  }
+  if (status === "Current") {
+    return "border-teal-300 bg-teal-50 text-teal-900";
+  }
+  return "border-gray-200 bg-white text-gray-500";
+}
+
 export default async function DocumentDetailPage({ params }: PageProps) {
   const { id } = await params;
 
@@ -273,7 +283,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
       id: `submitted-round-${round}`,
       type: "submitted",
       title: `Submitted for review (round ${round})`,
-      by: `→ ${reviewerNames}`,
+      by: `To: ${reviewerNames}`,
       timestamp: earliest,
     });
 
@@ -321,13 +331,71 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     document.status === "rejected"
       ? currentRoundApprovals.find((a) => a.status === "rejected")
       : null;
+  const hasAiPrecheck = Boolean(
+    latestAIResult?.summary || latestVersion?.content_text
+  );
+  const hasReviewRound = totalReviewers > 0;
+  const hasReviewerDecision = currentRoundApprovals.some(
+    (a) => a.status === "approved" || a.status === "rejected"
+  );
+  const hasSignatureEvidence = (signatures || []).length > 0;
+  const workflowSteps = [
+    {
+      label: "Upload",
+      status: latestVersion ? "Completed" : "Current",
+    },
+    {
+      label: "AI pre-check",
+      status: hasAiPrecheck
+        ? "Completed"
+        : latestVersion
+          ? "Current"
+          : "Not started",
+    },
+    {
+      label: "Assign reviewers",
+      status: hasReviewRound
+        ? "Completed"
+        : latestVersion && !hasAiPrecheck
+          ? "Not started"
+          : "Current",
+    },
+    {
+      label: "Review",
+      status:
+        document.status === "approved" ||
+        document.status === "rejected" ||
+        hasReviewerDecision
+          ? "Completed"
+          : hasReviewRound
+            ? "Current"
+            : "Not started",
+    },
+    {
+      label: "Sign",
+      status: hasSignatureEvidence
+        ? "Completed"
+        : document.status === "pending"
+          ? "Current"
+          : "Not started",
+    },
+    {
+      label: "Verify",
+      status:
+        document.status === "approved" && hasSignatureEvidence
+          ? "Current"
+          : "Not started",
+    },
+  ];
+  const roundDeadline = currentRoundApprovals[0]?.due_at ?? null;
+  const nowMs = new Date().getTime();
 
   return (
     <main className="min-h-screen bg-slate-50 p-6 text-gray-900 lg:p-10">
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 flex items-center justify-between">
           <Link href="/documents" className="text-sm font-medium text-blue-600 hover:underline">
-            ← Back to Documents
+            Back to Documents
           </Link>
 
           <Link
@@ -350,11 +418,50 @@ export default async function DocumentDetailPage({ params }: PageProps) {
               </h1>
 
               <p className="mt-3 max-w-3xl text-gray-600">
-                {document.description || "No description provided"}
+                {document.description || "No review context provided yet"}
               </p>
             </div>
 
             <StatusBadge status={document.status} />
+          </div>
+
+          <div className="mt-6 flex flex-wrap gap-2 text-xs text-gray-600">
+            <span className="rounded-full bg-slate-100 px-3 py-1">
+              Document type: Academic PDF
+            </span>
+            <span className="rounded-full bg-slate-100 px-3 py-1">
+              Submitter: {ownerName}
+            </span>
+            <span className="rounded-full bg-slate-100 px-3 py-1">
+              Version: {latestVersion?.version_no ?? "None"}
+            </span>
+            <span className="rounded-full bg-slate-100 px-3 py-1">
+              Review round: {currentRound || "Not assigned"}
+            </span>
+            {roundDeadline && (
+              <span className="rounded-full bg-slate-100 px-3 py-1">
+                Deadline: <FormattedDate value={roundDeadline} />
+              </span>
+            )}
+          </div>
+
+          <div className="mt-6">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">
+              Workflow
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+              {workflowSteps.map((step, index) => (
+                <div
+                  key={step.label}
+                  className={`rounded-2xl border px-3 py-3 text-sm ${workflowStepClass(step.status)}`}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em]">
+                    {index + 1}. {step.label}
+                  </p>
+                  <p className="mt-1 text-xs">{step.status}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-3">
@@ -399,7 +506,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
                   </span>
                   {latestRejection.reviewed_at && (
                     <>
-                      {" · "}
+                      {" - "}
                       <FormattedDate value={latestRejection.reviewed_at} />
                     </>
                   )}
@@ -419,7 +526,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
             )}
 
             <p className="mt-4 text-sm text-red-800">
-              Upload a revised PDF below — the document will reset to draft so
+              Upload a revised PDF below. The document will reset to draft so
               you can submit it for review again. The rejection history is kept.
             </p>
           </section>
@@ -555,13 +662,13 @@ export default async function DocumentDetailPage({ params }: PageProps) {
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.3em] text-teal-700">
-                  Approval Progress · Round {currentRound}
+                  Approval Progress - Round {currentRound}
                 </p>
                 <h2 className="mt-2 text-xl font-bold text-gray-900">
                   {approvedCount} of {totalReviewers} reviewers approved
                 </h2>
                 <p className="mt-1 text-sm text-gray-600">
-                  {pendingCount} pending · {approvedCount} approved ·{" "}
+                  {pendingCount} pending - {approvedCount} approved -{" "}
                   {rejectedCount} rejected
                 </p>
                 {currentRoundApprovals[0]?.due_at && (
@@ -583,7 +690,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
                 const isOverdue =
                   approval.status === "pending" &&
                   dueMs !== null &&
-                  dueMs < Date.now();
+                  dueMs < nowMs;
 
                 return (
                   <div

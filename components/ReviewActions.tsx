@@ -151,15 +151,16 @@ export default function ReviewActions({
       <h2 className="text-2xl font-semibold text-gray-900">Review Decision</h2>
 
       <p className="muted-copy mt-2 text-sm">
-        Approving requires <strong>Windows Hello</strong> authentication: you
-        will sign the current file&apos;s hash with your device-bound private
-        key. The document is approved only after all {totalCount} reviewer
+        Approval requires <strong>WebAuthn user verification</strong>. You will
+        confirm with the registered platform authenticator, then the system
+        signs the current file hash and records the approval evidence. The
+        document is approved only after all {totalCount} reviewer
         {totalCount === 1 ? "" : "s"} approve and sign; a single rejection ends
         the round.
       </p>
 
       <p className="mt-2 inline-flex items-center rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800">
-        {approvedCount} of {totalCount} approved · {remaining} remaining
+        {approvedCount} of {totalCount} approved - {remaining} remaining
       </p>
 
       <div className="mt-4">

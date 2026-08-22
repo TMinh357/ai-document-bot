@@ -16,17 +16,51 @@
 
 ## 1. Project elevator pitches
 
+### Use this framing first
+
+The safest framing for the second defense is:
+
+> "This is an AI-assisted internal document approval system for university departments and research groups that still review academic PDFs through email, chat, or shared folders. A student or researcher uploads a proposal or report, assigned supervisors and department reviewers approve or reject it through multi-round workflows, and an AI assistant summarizes the document and answers grounded questions about its content. The system also records WebAuthn signatures tied to the file hash, so the department can later verify both who approved the document and whether the approved file was changed."
+
+The key is to avoid presenting the project as a generic enterprise SaaS. Present it as a focused academic workflow tool for departments and research groups that need more accountability than email or Google Drive, but less complexity than a full enterprise document-management or legal e-signature platform.
+
+### Target users and practical value
+
+Use this section when the panel asks "Who would actually use this?" or "Why is this practical?"
+
+- **Primary setting:** university departments and research groups that review academic PDF documents internally.
+- **Submitters:** students or researchers who prepare research proposals, internship reports, thesis-related documents, or academic progress reports.
+- **Supervisors:** lecturers or research supervisors who review document content, leave comments, and approve or reject revisions.
+- **Department reviewers:** academic committee members or department-level reviewers who perform a final quality, completeness, or compliance check.
+- **Administrators:** department secretaries, IT staff, or system owners who approve accounts, manage roles, and inspect audit logs.
+
+Practical scenario:
+
+> "For example, a student submits a research proposal as a PDF. The supervisor reviews the objectives, methodology, expected results, and missing points, uses the AI assistant to obtain a quick summary and risk notes, and leaves passage-level comments. If revision is needed, the student uploads a new version and resubmits. When the supervisor and department reviewer both approve, each approval is signed, and the system preserves the version history, review history, signatures, audit log, and a certificate that can detect later tampering."
+
+Why this is more practical than email or Google Drive:
+
+Google Drive and email are useful for storage and communication, but they do not model the approval process. They do not enforce that all assigned reviewers approve, do not keep structured rounds after resubmission, do not require reviewer comments on rejection, do not produce an audit trail tied to roles, and do not verify whether the final PDF was changed after approval.
+
+Why this is not just a commercial e-signature clone:
+
+Commercial e-signature systems focus on legally recognized signing and document routing. This project has a different scope: a low-overhead academic prototype for internal proposal and report review, where the value is the combination of workflow tracking, AI reading support, role-based access control, and integrity verification. It does not claim to replace PAdES/PKCS#7 legal signatures; PDF-embedded legal signatures are documented as future work.
+
+One-sentence practical value:
+
+> "The practical value is not just storing a PDF; it is turning an informal academic review process into a traceable workflow where people know who is responsible, which version was reviewed, what feedback was given, and whether the approved file later changed."
+
 ### 30-second version (for the opening question)
 
-> "This is an AI-assisted document approval system for small organizations. Employees upload PDFs, reviewers approve or reject in multi-round workflows, and an integrated AI assistant — using OpenAI's gpt-5.4-mini — summarizes documents and answers questions about their content. Every approved document carries a multi-party WebAuthn digital signature, one from the owner at submission and one from each reviewer at approval, with the signing key bound to the user's TPM hardware. The whole stack is Next.js 16, Supabase with Row-Level Security, deployed on Vercel."
+> "This is an AI-assisted internal document approval system for university departments and research groups. Students or researchers upload academic PDFs such as research proposals and internship reports; supervisors and department reviewers approve or reject them in multi-round workflows; and an integrated AI assistant summarizes documents and answers questions about their content. Every approved document carries multi-party WebAuthn signature evidence tied to the file hash, so the department can verify both approval responsibility and file integrity. The whole stack is Next.js 16, Supabase with Row-Level Security, deployed on Vercel."
 
 ### 2-minute version (when asked "tell us about your project")
 
 > "Traditional document review in organizations relies on email, paper signatures, and ad-hoc tracking. There's no single place to see who approved what, no integrity guarantee that a signed document hasn't been altered, and no automated help for reading long PDFs.
 >
-> My project integrates three normally-separate concerns into one application: a multi-role workflow with employee, reviewer, and administrator roles; an AI assistant for summarization, key-point extraction, and grounded Q&A on uploaded PDFs; and a digital signing system built on WebAuthn / FIDO2 with hardware-bound keys.
+> My project integrates three normally-separate concerns into one application: an academic approval workflow with Submitter, Reviewer, and Administrator roles; an AI assistant for summarization, key-point extraction, and grounded Q&A on uploaded PDFs; and a digital signing system built on WebAuthn / FIDO2 platform credentials.
 >
-> The signing model is multi-party — the owner signs at submission, each reviewer signs at approval, and a Verify Integrity button later proves both that the file hasn't been altered and that the signatures were cryptographically produced by the registered users.
+> The signing model is multi-party: the Submitter signs at submission, each reviewer signs at approval, and a Verify Integrity button later checks both that the file has not been altered and that the signatures were cryptographically produced by the registered users.
 >
 > Security is layered: page-level role checks, database Row-Level Security policies, and service-role-only writes. Even if a malicious client bypasses the UI, the database refuses to return rows they shouldn't see.
 >
@@ -45,10 +79,10 @@ Use the demo script in Section 2.
 ### Setup before the defense
 
 - Browser session A: signed in as **admin** (your admin account)
-- Browser session B: signed in as **employee** (different account)
+- Browser session B: signed in as **Submitter** (implementation role: `employee`)
 - Browser session C: signed in as **reviewer** (different account)
 - All three windows visible
-- Pre-prepared 5-page PDF on desktop ready to upload
+- Pre-prepared 5-page PDF on desktop ready to upload, preferably a realistic academic document such as `Research Proposal.pdf`, `Internship Report Approval.pdf`, or `Academic Progress Report.pdf`
 - Tab to your deployed Vercel URL or `npm run dev` localhost
 - Backup video recording in case live demo breaks
 
@@ -57,13 +91,13 @@ Use the demo script in Section 2.
 1. **(15 sec) Show the dashboard as admin** — point at the metric cards, audit log preview, user list. *"This is the admin view. Three metric cards, real-time updates via Supabase Realtime."*
 2. **(30 sec) Register a new user in session D (incognito).** It lands as pending. *"New accounts are gated by admin approval. Notice the admin dashboard updated in real time via the websocket — no reload."*
 3. **(20 sec) Admin approves the new user.** Email is sent via Brevo. *"Approval triggers an email through Brevo and an in-app notification. The user can now sign in."*
-4. **(30 sec) As employee, create a document and upload the PDF.** *"Client does a pre-flight size + MIME check. The file goes to a staging path. Then the server downloads only the first few bytes via an HTTP Range request, validates the PDF magic bytes, and only then moves the file to its final path. Notice the database row is inserted by the service-role client, never by the browser."*
+4. **(30 sec) As submitter, create a document and upload the PDF.** *"In this scenario, a university department is reviewing a student research proposal. The client does a pre-flight size + MIME check. The file goes to a staging path. Then the server downloads only the first few bytes via an HTTP Range request, validates the PDF magic bytes, and only then moves the file to its final path. Notice the database row is inserted by the service-role client, never by the browser."*
 5. **(45 sec) Generate AI summary.** Show summary + key points + risk notes. *"This is gpt-5.4-mini with a JSON-schema-constrained structured output. We extract text with pdf-parse first, and fall back to multimodal OCR via the OpenAI Files API if the text layer is empty. Caching is implicit — the latest result for the document is loaded automatically."*
-6. **(45 sec) Submit for review.** Pick the reviewer, deadline 3 days. Windows Hello prompt appears. **Press your fingerprint or PIN.** *"The owner produces a WebAuthn signature here — ECDSA P-256, key bound to my device's TPM. The server verifies the assertion using SimpleWebAuthn before any state transition. If I cancel Hello, nothing is written to the database."*
+6. **(45 sec) Submit for review.** Pick the reviewer, deadline 3 days. Windows Hello prompt appears. **Press your fingerprint or PIN.** *"The Submitter produces a WebAuthn assertion here over the current PDF hash. The server verifies it using SimpleWebAuthn before any state transition. If I cancel the authenticator prompt, nothing is written to the database."*
 7. **(30 sec) Switch to reviewer.** The bell badge incremented in real time. Open the document. Show the inline PDF viewer, drag-select a passage, add a highlight comment. *"Passage-level highlights stored as page-relative percentage rectangles, so they survive zoom and resize."*
 8. **(30 sec) Approve.** Windows Hello prompts again. **Press it.** *"Each reviewer signature is captured at the moment of approval. Document is now Approved — terminal state. Owner gets an email + in-app notification, again via Brevo and Realtime."*
 9. **(60 sec — the centerpiece) The tamper demo.** Switch to Supabase Storage console, replace the file with a different binary. Back to the document page, click Verify Integrity. *"Both signatures now show **Hash Mismatch** — the file content was modified — but **WebAuthn-ES256 Valid** — the signatures themselves are cryptographically authentic. This is exactly the case from Figure 5.2 panel (c) in the report. The system detects post-approval tampering without false-flagging either signer."*
-10. **(30 sec) Show the certificate page** — AAGUID friendly name ("Windows Hello, Hardware, TPM"), UV flag, device-type, sign counter. *"The certificate decodes the attestation evidence from each signature's authenticatorData so anyone can see what authenticator produced the signature."*
+10. **(30 sec) Show the certificate page** — summary first, then AAGUID, user-verification flag, credential scope, and sign counter in technical details. *"The certificate starts with practical questions: whether the file changed, who signed, and whether the workflow is complete. The raw WebAuthn evidence is still available, but it is not presented as a legal certificate."*
 11. **(15 sec) Wrap.** *"That's the full lifecycle: create, submit-with-signing, review-with-signing, approve, verify, detect tampering."*
 
 ### If the demo breaks
@@ -280,14 +314,14 @@ Caching. Calling the OpenAI API on every document detail page load would be wast
 
 ### Q: Walk us through how a signature is produced.
 
-The first time a user signs anything, the application opens a Windows Hello (or platform-equivalent) prompt and generates an ECDSA P-256 keypair *inside the device's TPM*. The server stores the user's COSE-encoded public key, AAGUID, sign counter, device-type indicator, and registration timestamp in the profiles table. The private key is non-extractable — it never leaves the TPM.
+The first time a user signs anything, the application opens a Windows Hello or platform-equivalent WebAuthn prompt and registers a platform credential. The server stores the user's COSE-encoded public key, AAGUID, sign counter, credential scope indicator, and registration timestamp in the profiles table. The private key is controlled by the authenticator and is never stored by the application server.
 
 For each subsequent signing event:
 1. Client requests the SHA-256 hash of the latest file version from a dedicated endpoint that reads the cached `content_hash`.
 2. Client calls `navigator.credentials.get()` with the file hash as the WebAuthn challenge, the user's registered credential ID in `allowCredentials`, and `userVerification: "required"`.
-3. The browser triggers Windows Hello; user authenticates with PIN, fingerprint, or face.
-4. The TPM signs `authenticatorData || SHA-256(clientDataJSON)` with the private key and returns the raw signature bytes, authenticatorData binary blob, and clientDataJSON string.
-5. Client posts all three to the server route (`/api/documents/[id]/submit` for owner, `/api/approvals/[id]/decide` for reviewer).
+3. The browser triggers the platform authenticator; user authenticates with PIN, fingerprint, or face when available.
+4. The authenticator signs `authenticatorData || SHA-256(clientDataJSON)` with the credential private key and returns the raw signature bytes, authenticatorData binary blob, and clientDataJSON string.
+5. Client posts all three to the server route (`/api/documents/[id]/submit` for Submitter, `/api/approvals/[id]/decide` for reviewer).
 6. Server route imports the signer's public key from profiles and calls `verifyAuthenticationResponse` from @simplewebauthn/server, which checks: challenge matches the file hash, origin/RP-ID match the deployment, user-verification flag is set, signature is mathematically valid under the public key.
 7. Server updates the sign counter (replay protection) and inserts the signature row.
 8. Only on positive verification does any state transition occur.
@@ -296,12 +330,12 @@ For each subsequent signing event:
 
 This is the key architectural decision. With Web Crypto API, the private key would live in browser IndexedDB — any code with browser access (a malicious extension, XSS, a stolen device) could potentially access and use the key. With WebAuthn / FIDO2:
 
-1. **The private key is non-extractable.** It physically cannot leave the TPM — not by export, not by user action, not by malicious code.
-2. **Every signing event requires fresh user-verification.** Even if the device is unlocked, the TPM won't sign without a fresh PIN or biometric authentication. This proves the user *consciously* signed, not just "had the session cookie."
-3. **Hardware binding.** The signature proves not just that someone holds the key, but that they're physically present at the device that holds the key.
-4. **Sign counter detects cloned authenticators.** If an attacker somehow cloned the TPM, the counter mismatch on the next signing event would be detected.
+1. **The private key is controlled by the platform authenticator.** The application server never receives or stores it.
+2. **Every signing event requests user verification.** The route requires the WebAuthn user-verification flag, so a session cookie alone is not enough.
+3. **Credential binding.** The signature proves that the registered credential produced the assertion for the exact file hash.
+4. **Sign counter supports replay/cloning checks.** When reported by the authenticator, counter movement gives another signal for suspicious credential behavior.
 
-Three security properties — authenticity, integrity, non-repudiation — are jointly enforced. With browser-held keys, only integrity is robust.
+Three technical security properties — signer authenticity, file integrity, and auditability — are jointly supported. Legal non-repudiation would require a qualified PKI or regulatory signing layer, which is outside this prototype.
 
 ### Q: Why not just SHA-256 hash and call it signing?
 
@@ -309,11 +343,11 @@ A SHA-256 hash proves the file hasn't changed *given that you trust whoever stor
 
 ### Q: Why multi-party signing instead of just the owner?
 
-The owner's signature proves "this is the file I sent for review." But the reviewer is the one who decides whether to approve, and approval is the legally and organizationally meaningful event. If only the owner signed, an approval could be forged by anyone with reviewer-level database access. Each reviewer signing at the moment of approval creates an independent cryptographic record that the reviewer endorsed the specific file content. This was an explicit supervisor request — quoted in the report: *"When the owner sends the document to the reviewer, they sign for confirmation first. After the reviewer receives and confirms the document, the reviewer will sign to confirm."*
+The Submitter's signature proves "this is the file I sent for review." But the reviewer is the one who decides whether to approve, and approval is the organizationally meaningful event. If only the Submitter signed, the system would not have independent evidence that each reviewer endorsed the file. Each reviewer signing at the moment of approval creates a separate cryptographic record for the specific file content.
 
 ### Q: Why not use the Windows certificate store (certmgr.msc)?
 
-Browsers cannot directly read the Windows certificate store — this is a deliberate security boundary, because if web pages could read the cert store they could exfiltrate user credentials. WebAuthn is the modern equivalent: same TPM-backed crypto, plus mandatory biometric user-verification, accessible to web applications through a standard browser API. Banks, Apple Wallet, Google Workspace, and most modern banking apps use exactly this mechanism. The key physically cannot be exported — which is stronger than a software certificate in certmgr, where the private key file *can* be exported by an administrator.
+Browsers cannot directly read the Windows certificate store because that would be a serious security boundary violation. WebAuthn is the web-standard alternative: it lets web applications ask a registered authenticator to produce a signed assertion, while the server verifies the public-key signature. For this prototype, that gives practical internal verification without implementing a full PKI certificate lifecycle.
 
 ### Q: Why not PAdES (PDF-embedded signatures readable by Adobe)?
 
@@ -321,18 +355,18 @@ PAdES adds no cryptographic value over what WebAuthn already provides — it onl
 
 ### Q: Why not VNPT-CA or Viettel-CA (Vietnamese PKI certificates)?
 
-Two reasons. **Cost**: VNPT-CA and Viettel-CA charge approximately 500,000–1,000,000 VND per user per year. For a graduation project, this is unrealistic. **Complexity**: integrating real PKI requires obtaining a real certificate for each user, managing certificate lifecycle (issuance, renewal, revocation), and complying with the Law on Electronic Transactions. My system demonstrates the technical foundation for hardware-bound signing; productizing it for legal compliance would mean integrating a CA. Listed as future work alongside Trusted Timestamp Authority integration in §8.2.1.
+Two reasons. **Cost**: commercial PKI introduces per-user certificate cost and operational overhead. For a graduation project, this is unrealistic. **Complexity**: integrating real PKI requires obtaining a real certificate for each user, managing certificate lifecycle (issuance, renewal, revocation), and complying with legal-recognition requirements. My system demonstrates the technical foundation for document-specific signing; productizing it for legal compliance would mean integrating a CA. Listed as future work alongside Trusted Timestamp Authority integration in §8.2.1.
 
 ### Q: How do you know the user *actually* signed it and isn't being impersonated?
 
 Five layers of evidence:
-1. **Windows Hello PIN/biometric was required** at every signing event — the UV (user-verified) flag in `authenticatorData` is checked.
-2. **The private key is non-extractable** in the TPM. It physically cannot exist anywhere else.
-3. **The credential is hardware-bound** to this specific device via AAGUID.
-4. **The sign counter** increases monotonically. A cloned authenticator would produce a counter mismatch on the next signing.
-5. **The public key was registered** during a previous Windows Hello ceremony that itself required biometric authentication, so the binding between user account and public key is itself attested.
+1. **PIN or biometric user verification is required** at every signing event when the platform authenticator supports it. The UV flag in `authenticatorData` is checked.
+2. **The private key is not stored by the application server.** Signing is delegated to the registered authenticator.
+3. **The credential is linked to the user's account** through the stored public key, credential ID, and AAGUID metadata.
+4. **The sign counter** can indicate suspicious replay or cloned-authenticator behavior when reported by the authenticator.
+5. **The public key was registered** during a previous WebAuthn registration ceremony, so the account-to-credential relationship is recorded before document signing.
 
-Even if a server administrator wanted to forge a signature, they couldn't — the private keys never leave the signers' TPMs, and the server only stores public keys.
+Even if a server administrator wanted to forge a WebAuthn signature, they would not have the credential private keys. The server stores public keys and verification metadata, not signer private keys.
 
 ### Q: Walk us through the tamper scenarios (Figure 5.2).
 
@@ -346,15 +380,15 @@ The two-judgment design (Hash Match/Mismatch vs. ES256 Valid/Invalid) is intenti
 
 ### Q: What if the user loses their device or wipes it?
 
-Currently, this breaks signing for that user — they can't reproduce the private key, since it lived in the lost device's TPM. Re-enrolling requires admin intervention to clear the old credential and let the user register a new one. I listed "WebAuthn credential lifecycle management" as future work in §8.2.4 — administrators would need a panel to invalidate credentials, and users would need a self-service re-enroll flow gated by email confirmation. For the prototype, this is a known operational gap.
+Currently, this breaks signing for that user because the registered credential is no longer available. Re-enrolling requires admin intervention to clear the old credential and let the user register a new one. I listed "WebAuthn credential lifecycle management" as future work in §8.2.4: administrators would need a panel to invalidate credentials, and users would need a self-service re-enroll flow gated by email confirmation. For the prototype, this is a known operational gap.
 
 ### Q: What about Linux users without Windows Hello?
 
-The current code uses `authenticatorAttachment: "platform"`, which restricts WebAuthn to platform authenticators (Windows Hello, Touch ID, mobile biometric). Linux desktop users without a configured platform authenticator can't sign — they'd need to either configure a platform authenticator manually or use a Windows/Mac/mobile device. The application detects this case gracefully and shows setup instructions instead of crashing. Allowing cross-device WebAuthn (phone-via-QR-code) would solve this in one line of config but weaken the "credential bound to this physical machine" property. Listed as future work in §8.2.2.
+The current code uses `authenticatorAttachment: "platform"`, which restricts WebAuthn to platform authenticators such as Windows Hello, Touch ID, or mobile biometric authentication. Linux desktop users without a configured platform authenticator cannot sign; they need to configure one or use another supported device. The application detects this case gracefully and shows setup instructions instead of crashing. Allowing cross-device WebAuthn would improve device coverage, but it changes the credential-scope story, so I list it as future work in §8.2.2.
 
 ### Q: How does this compare to DocuSign / Adobe Sign?
 
-DocuSign and Adobe Sign use **click-to-sign** with audit-trail-based assurance ("user clicked Sign at IP X at time Y"). My system uses **cryptographic** assurance ("the holder of TPM-bound private key K signed hash H at time Y with user-verification confirmed"). Mine is stronger on a per-signature basis. DocuSign is stronger on legal recognition — they're eIDAS/ESIGN certified, mine is not. For internal organizational workflows where legal recognition isn't required, my model is more secure. For cross-organization or contract signing where legal validity matters, DocuSign wins.
+DocuSign and Adobe Sign use legally recognized e-signature products with mature audit trails and compliance features. My system focuses on a narrower internal-academic workflow: it records cryptographic WebAuthn evidence that a registered credential signed a specific PDF hash at approval time. That is useful for integrity and internal accountability, but it is not a replacement for certified e-signature platforms when legal recognition is required.
 
 ---
 
@@ -374,7 +408,7 @@ Two layers. **First**, JWT cookies are issued by Supabase Auth with `SameSite=La
 
 ### Q: What if the admin account is compromised?
 
-Admin compromise is a serious incident. The admin can read all documents, delete documents, change user roles, approve users. They cannot, however, forge WebAuthn signatures — the private keys are in users' TPMs, not on the server. So while a compromised admin could exfiltrate documents and approve accounts, they could not produce a fraudulent signature that verifies under any specific user's public key. The audit log records every admin action with actor + timestamp + target, so post-incident forensics is possible.
+Admin compromise is a serious incident. The admin can read all documents, delete documents, change user roles, and approve users. They cannot, however, produce a valid WebAuthn assertion for another user's registered credential because the server stores public keys, not private keys. So while a compromised admin could exfiltrate documents or abuse administrative workflows, they could not create a signature that verifies under a specific user's public key. The audit log records every admin action with actor + timestamp + target, so post-incident forensics is possible.
 
 ### Q: How do you handle file upload attacks?
 
@@ -480,9 +514,9 @@ Vietnam's Decree 13 on Personal Data Protection restricts cross-border transfer 
 
 ### Q: How does this compare to VNPT-CA or Viettel-CA?
 
-VNPT-CA and Viettel-CA are PKI certificate authorities — they issue real X.509 certificates that bind a user's legal identity to a public key, and they're certified under Vietnam's Law on Electronic Transactions for legally-recognized signatures. My system implements the *technical* primitives — hardware-bound signing, integrity verification, non-repudiation — but not the legal-recognition layer, because that requires CA certification.
+VNPT-CA and Viettel-CA are PKI certificate authorities: they issue real X.509 certificates that bind a user's legal identity to a public key and support legally recognized signatures. My system implements technical verification primitives such as WebAuthn-based signer evidence, file integrity verification, and audit history, but not the legal-recognition layer, because that requires CA certification.
 
-For an organization that needs legally-binding signatures (e.g., for tax documents), VNPT-CA is the right answer. For internal workflows (e.g., approval routing, internal contracts), my system provides equivalent or stronger technical guarantees at zero per-user cost.
+For an organization that needs legally binding signatures, VNPT-CA or another certified provider is the right answer. For internal academic workflows where the goal is traceability and integrity rather than legal signing, my system provides practical technical evidence at zero per-user certificate cost.
 
 ### Q: Could this comply with the Law on Electronic Transactions?
 
@@ -492,7 +526,7 @@ Not in its current form. The Law requires certification by a qualified trust ser
 
 (This is your honest motivation — fill in what's true for you. Suggested framing:)
 
-> "I wanted a project that combined three areas I'd studied: web development, database security, and emerging AI. Document approval is a common organizational problem with no good integrated solution — most products solve one slice, and small organizations end up with email and shared folders. Building it gave me hands-on experience with real RLS, real cryptography, and real LLM integration, rather than the toy examples in coursework."
+> "I wanted a project that combined three areas I'd studied: web development, database security, and emerging AI. Academic document review is a familiar problem in university departments and research groups: proposals and reports often move through email, shared folders, and informal comments, but the approval responsibility and final version are hard to track. Building this system gave me hands-on experience with real RLS, real cryptography, and real LLM integration, rather than the toy examples in coursework."
 
 ---
 
@@ -572,7 +606,7 @@ The panel respects intellectual honesty far more than confident bullshitting.
 - [ ] Test screen-share if defending remotely
 - [ ] Get 7+ hours of sleep — your reasoning under pressure depends on this more than anything
 
-You built a system that genuinely covers all three of: structured workflow, real LLM integration, and TPM-backed multi-party signing. That's above the bar for a USTH BSc ICT defense. The remaining work is presenting it confidently. You can do this.
+You built a system that genuinely covers all three of: structured workflow, real LLM integration, and WebAuthn-based multi-party signing. That's above the bar for a USTH BSc ICT defense. The remaining work is presenting it confidently. You can do this.
 
 ---
 

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import SigningKeySetup from "./SigningKeySetup";
+import { formatRoleLabel } from "@/lib/role-labels";
 import {
   getClientRpId,
   signFileHashWithWebAuthn,
@@ -166,11 +167,12 @@ export default function SubmitForReviewForm({
       </h2>
 
       <p className="muted-copy mt-2 text-sm">
-        Select one or more reviewers. Submission requires your{" "}
-        <strong>Windows Hello</strong> authentication: you will be prompted to
-        sign the file with your device-bound private key. The document is
-        approved only when every selected reviewer also signs their approval;
-        a single rejection ends this round.
+        Select one or more reviewers. Submission requires{" "}
+        <strong>WebAuthn user verification</strong>: you will confirm with the
+        registered platform authenticator, then the system signs the current
+        file hash and records the submission evidence. The document is approved
+        only when every selected reviewer also signs their approval; a single
+        rejection ends this round.
       </p>
 
       {latestVersionNo !== null && (
@@ -221,7 +223,7 @@ export default function SubmitForReviewForm({
                   type="text"
                   value={filterText}
                   onChange={(e) => setFilterText(e.target.value)}
-                  placeholder="Search reviewers by name or role…"
+                  placeholder="Search reviewers by name or role..."
                   className="mb-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
                 />
               )}
@@ -232,7 +234,8 @@ export default function SubmitForReviewForm({
                   ? reviewers.filter(
                       (r) =>
                         (r.full_name ?? "").toLowerCase().includes(q) ||
-                        r.role.toLowerCase().includes(q)
+                        r.role.toLowerCase().includes(q) ||
+                        formatRoleLabel(r.role).toLowerCase().includes(q)
                     )
                   : reviewers;
 
@@ -260,7 +263,7 @@ export default function SubmitForReviewForm({
                       <span className="text-sm text-gray-900">
                         {reviewer.full_name || reviewer.id}{" "}
                         <span className="text-xs text-gray-500">
-                          ({reviewer.role})
+                          ({formatRoleLabel(reviewer.role)})
                         </span>
                       </span>
                     </label>

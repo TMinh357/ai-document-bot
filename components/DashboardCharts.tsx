@@ -115,7 +115,7 @@ export default function DashboardCharts({
             align-items:end). A 12-doc bar is exactly 3x a 4-doc bar. */}
         <div className="mt-6 flex items-end gap-3 border-b border-gray-200 pb-px">
           {monthlyCounts.map((m) => {
-            const PLOT_HEIGHT = 160; // px — the tallest bar fills this
+            const PLOT_HEIGHT = 160; // px - the tallest bar fills this
             const barHeight =
               m.count > 0
                 ? Math.max((m.count / maxMonth) * PLOT_HEIGHT, 8)
@@ -157,7 +157,7 @@ export default function DashboardCharts({
             <span className="text-xs text-gray-400">
               {totalDecided} decisions
               {approvalRatio.pending > 0 &&
-                ` · ${approvalRatio.pending} pending`}
+                ` - ${approvalRatio.pending} pending`}
             </span>
           </div>
 
@@ -185,7 +185,7 @@ export default function DashboardCharts({
                       aria-hidden
                       className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-green-600 text-xs font-bold text-white"
                     >
-                      ✓
+                      OK
                     </span>
                     <p className="text-sm font-semibold text-green-900">
                       Approved
@@ -205,7 +205,7 @@ export default function DashboardCharts({
                       aria-hidden
                       className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-xs font-bold text-white"
                     >
-                      ✗
+                      !
                     </span>
                     <p className="text-sm font-semibold text-red-900">
                       Rejected

@@ -7,6 +7,7 @@ import RoleSelector from "@/components/admin/RoleSelector";
 import StatusSelector from "@/components/admin/StatusSelector";
 import FormattedDate from "@/components/FormattedDate";
 import { requireRole } from "@/lib/supabase/auth";
+import { formatRoleDescription, formatRoleLabel } from "@/lib/role-labels";
 
 type AccountStatus = "pending" | "approved" | "rejected";
 
@@ -69,6 +70,11 @@ export default async function AdminUsersPage() {
                 </>
               )}
             </p>
+            <p className="muted-copy mt-2 text-sm">
+              Academic role mapping: Submitter = student/researcher; Reviewer =
+              supervisor/department reviewer; Administrator = system/department
+              administrator.
+            </p>
           </div>
 
           <div className="topbar-nav">
@@ -119,7 +125,12 @@ export default async function AdminUsersPage() {
                       isSelf={row.id === user.id}
                     />
                     <div className="flex items-center gap-3">
-                      <span className="status-pill capitalize">{row.role}</span>
+                      <span
+                        className="status-pill capitalize"
+                        title={`Implementation role: ${row.role}; ${formatRoleDescription(row.role)}.`}
+                      >
+                        {formatRoleLabel(row.role)}
+                      </span>
                       <RoleSelector
                         userId={row.id}
                         currentRole={row.role}

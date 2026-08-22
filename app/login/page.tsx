@@ -75,10 +75,17 @@ export default function LoginPage() {
     <main className="page-shell flex items-center justify-center">
       <div className="flex w-full flex-col items-center px-6">
         <div className="mb-8 text-center">
-          <p className="text-2xl font-medium tracking-wide text-gray-600">AI-Assisted Review System</p>
+          <p className="text-2xl font-medium tracking-wide text-gray-600">
+            Academic Document Approval Workspace
+          </p>
           <h1 className="mt-4 text-4xl font-semibold tracking-tight text-gray-900 md:whitespace-nowrap md:text-5xl">
-            Upload, review, and sign documents.
+            Submit, review, and verify research documents.
           </h1>
+          <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-gray-600 md:text-base">
+            Designed for students, researchers, supervisors, and department
+            reviewers who need a clear record of comments, decisions,
+            signatures, and document integrity.
+          </p>
         </div>
 
         <section className="glass-panel w-full max-w-md rounded-[2rem] p-8 md:p-10">
@@ -98,6 +105,7 @@ export default function LoginPage() {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="John Smith"
+                    autoComplete="name"
                     autoFocus
                   />
                 </div>
@@ -113,6 +121,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="example@email.com"
+                  autoComplete="email"
                   autoFocus={mode === "login"}
                   required
                 />
@@ -128,6 +137,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
+                  autoComplete={mode === "login" ? "current-password" : "new-password"}
                   required
                 />
               </div>

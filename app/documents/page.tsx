@@ -56,7 +56,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
 
   const filterLabel =
     activeStatus === "all"
-      ? "Documents you own. Submit them for review and track their status."
+      ? "Track your research proposals, project reports, and academic submissions through review."
       : `Showing your ${activeStatus} documents.`;
 
   return (
@@ -124,7 +124,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
           </div>
 
           <Link href="/documents/new" className="button-primary">
-            Create New Document
+            Create Academic Document
           </Link>
         </div>
 
@@ -147,7 +147,7 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
                       {document.title}
                     </h3>
                     <p className="muted-copy mt-2 text-sm leading-6">
-                      {document.description || "No description provided"}
+                      {document.description || "No review context provided yet"}
                     </p>
                     <p className="mt-2 text-xs uppercase tracking-[0.14em] text-gray-500">
                       Created at: <FormattedDate value={document.created_at} />
@@ -170,8 +170,8 @@ export default async function DocumentsPage({ searchParams }: PageProps) {
               <div className="px-6 py-10">
                 <EmptyState
                   title="No documents yet"
-                  description="Create your first document, upload a PDF, and submit it for review."
-                  actionLabel="Create New Document"
+                  description="You have no academic documents yet. Create a research proposal, project report, or internship report to begin the review workflow."
+                  actionLabel="Create Academic Document"
                   actionHref="/documents/new"
                 />
               </div>

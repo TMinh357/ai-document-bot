@@ -5,6 +5,7 @@ import UserBadge from "@/components/UserBadge";
 import ActiveLink from "@/components/ActiveLink";
 import FormattedDate from "@/components/FormattedDate";
 import { requireRole } from "@/lib/supabase/auth";
+import { formatRoleLabel } from "@/lib/role-labels";
 
 type SearchParams = {
   action?: string;
@@ -17,6 +18,28 @@ type SearchParams = {
 type PageProps = {
   searchParams: Promise<SearchParams>;
 };
+
+const ACTION_LABELS: Record<string, string> = {
+  SUBMIT_FOR_REVIEW: "Submitter sent document for review",
+  GENERATE_AI_SUMMARY: "AI review summary generated",
+  EXTRACT_DOCUMENT_TEXT: "Document text extracted",
+  APPROVE_DOCUMENT: "Reviewer approved document",
+  REJECT_DOCUMENT: "Reviewer rejected document",
+  VERIFY_INTEGRITY: "Document integrity verified",
+  ADMIN_CHANGE_USER_ROLE: "Administrator changed academic role",
+};
+
+function formatActionLabel(action: string): string {
+  return (
+    ACTION_LABELS[action] ||
+    action
+      .toLowerCase()
+      .split("_")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ")
+  );
+}
 
 export default async function AdminAuditLogsPage({ searchParams }: PageProps) {
   const filters = await searchParams;
@@ -57,7 +80,7 @@ export default async function AdminAuditLogsPage({ searchParams }: PageProps) {
   ] = await Promise.all([
     query,
     supabase.from("audit_logs").select("action"),
-    supabase.from("profiles").select("id, full_name").order("full_name"),
+    supabase.from("profiles").select("id, full_name, role").order("full_name"),
     supabase.from("documents").select("id, title").order("title"),
   ]);
 
@@ -65,9 +88,7 @@ export default async function AdminAuditLogsPage({ searchParams }: PageProps) {
     new Set((actionRows ?? []).map((r) => r.action).filter(Boolean))
   ).sort();
 
-  const profileMap = new Map(
-    (profiles ?? []).map((p) => [p.id, p.full_name])
-  );
+  const profileMap = new Map((profiles ?? []).map((p) => [p.id, p]));
 
   const documentMap = new Map(
     (documents ?? []).map((d) => [d.id, d.title])
@@ -129,7 +150,7 @@ export default async function AdminAuditLogsPage({ searchParams }: PageProps) {
                 <option value="">All actions</option>
                 {uniqueActions.map((action) => (
                   <option key={action} value={action}>
-                    {action}
+                    {formatActionLabel(action)}
                   </option>
                 ))}
               </select>
@@ -226,8 +247,8 @@ export default async function AdminAuditLogsPage({ searchParams }: PageProps) {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center rounded-lg bg-teal-50 px-2.5 py-1 font-mono text-xs font-semibold text-teal-700">
-                          {log.action}
+                        <span className="inline-flex items-center rounded-lg bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700">
+                          {formatActionLabel(log.action)}
                         </span>
                         {log.target_table && (
                           <span className="text-xs text-gray-400">
@@ -254,9 +275,19 @@ export default async function AdminAuditLogsPage({ searchParams }: PageProps) {
                           By:{" "}
                           <span className="font-medium text-gray-700">
                             {log.user_id
-                              ? (profileMap.get(log.user_id) ?? "Unknown")
+                              ? (profileMap.get(log.user_id)?.full_name ??
+                                "Unknown")
                               : "System"}
                           </span>
+                          {log.user_id && profileMap.get(log.user_id)?.role && (
+                            <span className="ml-1 text-gray-400">
+                              (
+                              {formatRoleLabel(
+                                profileMap.get(log.user_id)?.role
+                              )}
+                              )
+                            </span>
+                          )}
                         </span>
                         <span><FormattedDate value={log.created_at} /></span>
                       </div>
@@ -265,7 +296,7 @@ export default async function AdminAuditLogsPage({ searchParams }: PageProps) {
                         Object.keys(log.metadata).length > 0 && (
                           <details className="mt-2">
                             <summary className="cursor-pointer text-xs font-medium text-gray-400 hover:text-gray-600">
-                              Metadata
+                              Technical metadata
                             </summary>
                             <pre className="mt-1 overflow-x-auto rounded-lg border border-gray-200 bg-white/60 p-3 font-mono text-xs text-gray-600">
                               {JSON.stringify(log.metadata, null, 2)}

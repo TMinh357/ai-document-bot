@@ -28,7 +28,7 @@ export default async function DashboardPage() {
       | null;
   };
 
-  // All queries below are independent — run them in parallel.
+  // All queries below are independent, so run them in parallel.
   const documentCountQuery = supabase
     .from("documents")
     .select("*", { count: "exact", head: true });
@@ -86,7 +86,7 @@ export default async function DashboardPage() {
       : approvalRatioQuery.eq("reviewer_id", user.id)
     : Promise.resolve({ data: null as { status: string }[] | null });
 
-  // Fire-and-forget — reminders are side effects, the dashboard doesn't need to wait.
+  // Fire-and-forget: reminders are side effects, the dashboard doesn't need to wait.
   if (canReview) {
     void fireOverdueReminders(user.id);
   }
@@ -121,7 +121,8 @@ export default async function DashboardPage() {
   const ownedRejected = ownedDocs.filter((d) => d.status === "rejected").length;
 
   const pendingReviewCount = pendingReviews.length;
-  const nowMs = Date.now();
+  const now = new Date();
+  const nowMs = now.getTime();
   const nearDueMs = NEAR_DUE_HOURS * 60 * 60 * 1000;
 
   const overdueCount = pendingReviews.filter(
@@ -137,6 +138,11 @@ export default async function DashboardPage() {
   const documentsCaption = isAdmin
     ? "Total documents in the system"
     : "Documents you own";
+  const dashboardIntro = isAdmin
+    ? "Monitor academic submissions, reviewer workload, approvals, and audit activity across the department."
+    : canReview
+      ? "Review assigned academic submissions, add feedback, and record approval decisions."
+      : "Track your research proposals, project reports, and academic submissions through review.";
 
   const statusCounts = {
     draft: 0,
@@ -151,7 +157,6 @@ export default async function DashboardPage() {
     }
   });
 
-  const now = new Date();
   const monthlyCounts: { key: string; label: string; count: number }[] = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -199,6 +204,7 @@ export default async function DashboardPage() {
             <h1 className="mt-3 text-4xl font-semibold tracking-tight text-gray-900">
               Dashboard
             </h1>
+            <p className="muted-copy mt-2">{dashboardIntro}</p>
           </div>
 
           <div className="topbar-nav">
@@ -259,7 +265,7 @@ export default async function DashboardPage() {
                 Documents assigned to you for review
                 {overdueCount > 0 && (
                   <>
-                    {" · "}
+                    {" - "}
                     <span className="font-semibold text-red-600">
                       {overdueCount} overdue
                     </span>
@@ -267,7 +273,7 @@ export default async function DashboardPage() {
                 )}
                 {dueSoonCount > 0 && (
                   <>
-                    {" · "}
+                    {" - "}
                     <span className="font-semibold text-amber-600">
                       {dueSoonCount} due soon
                     </span>
@@ -400,25 +406,38 @@ export default async function DashboardPage() {
         <div className="mt-8">
           <h2 className="text-lg font-semibold text-gray-900">Quick Actions</h2>
           <p className="muted-copy mt-1 text-sm">
-            Access the main features of the document review system.
+            Continue the academic document approval workflow.
           </p>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {canReview && (
+              <Link href="/reviews" className="metric-card p-5">
+                <h3 className="text-base font-semibold text-gray-900">
+                  Review Queue
+                </h3>
+                <p className="muted-copy mt-1.5 text-sm leading-6">
+                  Open academic documents awaiting your decision.
+                </p>
+              </Link>
+            )}
+
             <Link href="/documents/new" className="metric-card p-5">
               <h3 className="text-base font-semibold text-gray-900">
-                New Document
+                Create Academic Document
               </h3>
               <p className="muted-copy mt-1.5 text-sm leading-6">
-                Create a document, upload a PDF, and start the review workflow.
+                Upload a proposal, project report, or internship report and
+                start the review workflow.
               </p>
             </Link>
 
             <Link href="/documents" className="metric-card p-5">
               <h3 className="text-base font-semibold text-gray-900">
-                Manage Documents
+                Manage Academic Documents
               </h3>
               <p className="muted-copy mt-1.5 text-sm leading-6">
-                View, upload new versions, and track all of your documents.
+                View submitted documents, versions, review status, and
+                approval evidence.
               </p>
             </Link>
 
@@ -450,20 +469,21 @@ export default async function DashboardPage() {
                   </span>
                 </div>
                 <p className="muted-copy mt-1.5 text-sm leading-6">
-                  Documents a reviewer rejected — upload a new version to resubmit.
+                  Documents a reviewer rejected. Upload a new version to resubmit.
                 </p>
               </Link>
             )}
 
             {canReview && (
-              <Link href="/reviews" className="metric-card p-5">
+              <div className="metric-card p-5">
                 <h3 className="text-base font-semibold text-gray-900">
-                  Review Queue
+                  Review Guidance
                 </h3>
                 <p className="muted-copy mt-1.5 text-sm leading-6">
-                  View documents assigned to you and make review decisions.
+                  Add passage comments, explain rejection reasons, and approve
+                  only after verifying the current version.
                 </p>
-              </Link>
+              </div>
             )}
 
             {isAdmin && (

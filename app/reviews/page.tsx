@@ -15,7 +15,7 @@ export default async function ReviewsPage() {
     "admin",
   ]);
 
-  // Fire-and-forget — reminders are side effects, the page doesn't need to wait.
+  // Fire-and-forget: reminders are side effects, the page doesn't need to wait.
   void fireOverdueReminders(user.id);
 
   const { data: approvals } = await supabase
@@ -40,6 +40,8 @@ export default async function ReviewsPage() {
     .eq("status", "pending")
     .order("due_at", { ascending: true, nullsFirst: false });
 
+  const nowMs = new Date().getTime();
+
   return (
     <main className="page-shell text-gray-900">
       <div className="page-container">
@@ -51,7 +53,7 @@ export default async function ReviewsPage() {
             </h1>
 
             <p className="muted-copy mt-2">
-              Documents assigned to you for review.
+              Open academic documents awaiting your decision.
             </p>
           </div>
 
@@ -90,7 +92,6 @@ export default async function ReviewsPage() {
                   return null;
                 }
 
-                const nowMs = Date.now();
                 const dueMs = approval.due_at
                   ? new Date(approval.due_at).getTime()
                   : null;
@@ -145,14 +146,14 @@ export default async function ReviewsPage() {
                       </div>
 
                       <p className="muted-copy mt-2 text-sm leading-6">
-                        {document.description || "No description provided"}
+                        {document.description || "No review context provided yet"}
                       </p>
 
                       <p className="mt-2 text-xs uppercase tracking-[0.14em] text-gray-500">
                         Assigned at: <FormattedDate value={approval.created_at} />
                         {approval.due_at && (
                           <>
-                            {" · "}Deadline: <FormattedDate value={approval.due_at} />
+                            {" - "}Deadline: <FormattedDate value={approval.due_at} />
                           </>
                         )}
                       </p>
@@ -176,8 +177,15 @@ export default async function ReviewsPage() {
                 );
               })
             ) : (
-              <div className="px-6 py-10 text-center text-gray-600">
-                No pending reviews assigned to you.
+              <div className="px-6 py-10 text-center">
+                <p className="font-medium text-gray-700">
+                  No pending reviews assigned to you.
+                </p>
+                <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-gray-500">
+                  When a Submitter assigns you to a review round, the document
+                  will appear here with its deadline, version, and review
+                  status.
+                </p>
               </div>
             )}
           </div>

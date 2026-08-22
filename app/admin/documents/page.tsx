@@ -8,7 +8,7 @@ import ActiveLink from "@/components/ActiveLink";
 import FormattedDate from "@/components/FormattedDate";
 import { requireRole } from "@/lib/supabase/auth";
 
-const STATUS_OPTIONS = ["draft", "pending", "approved", "rejected", "signed"];
+const STATUS_OPTIONS = ["draft", "pending", "approved", "rejected"];
 
 type SearchParams = {
   q?: string;
@@ -34,7 +34,7 @@ export default async function AdminDocumentsPage({ searchParams }: PageProps) {
   const trimmedQuery = (filters.q || "").trim();
 
   let searchedDocumentIds: Set<string> | null = null;
-  let contentTextMatchIds = new Set<string>();
+  const contentTextMatchIds = new Set<string>();
 
   if (trimmedQuery) {
     const pattern = `%${escapeIlikePattern(trimmedQuery)}%`;

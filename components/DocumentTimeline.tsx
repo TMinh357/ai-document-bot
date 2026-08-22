@@ -112,7 +112,7 @@ export default function DocumentTimeline({
                     <FormattedDate value={event.timestamp} />
                     {event.by && (
                       <>
-                        {" · "}
+                        {" - "}
                         <span className="font-medium text-gray-700">
                           {event.by}
                         </span>

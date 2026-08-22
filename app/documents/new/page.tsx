@@ -103,10 +103,10 @@ export default function NewDocumentPage() {
           </Link>
 
           <h1 className="mt-4 text-4xl font-semibold tracking-tight">
-            Create New Document
+            Create Academic Document
           </h1>
           <p className="muted-copy mt-2">
-            Upload a PDF file and submit basic document information.
+            Upload an academic PDF and provide the review context.
           </p>
         </div>
 
@@ -114,7 +114,7 @@ export default function NewDocumentPage() {
           <form onSubmit={handleCreateDocument} className="space-y-5">
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
-                Document Title
+                Document title
               </label>
               <input
                 className="input-field"
@@ -129,19 +129,19 @@ export default function NewDocumentPage() {
 
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
-                Description
+                Purpose, department, supervisor, or review context
               </label>
               <textarea
                 className="textarea-field"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Enter a short description"
+                placeholder="Describe why this document is being reviewed"
               />
             </div>
 
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
-                PDF File (max {MAX_FILE_MB} MB)
+                Upload academic PDF
               </label>
               <input
                 className="file-field"
@@ -156,6 +156,9 @@ export default function NewDocumentPage() {
                   Selected file: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
                 </p>
               )}
+              <p className="muted-copy mt-2 text-xs">
+                PDF only, maximum {MAX_FILE_MB} MB.
+              </p>
             </div>
 
             {message && <p className="text-sm text-red-600">{message}</p>}
@@ -165,8 +168,12 @@ export default function NewDocumentPage() {
               disabled={isLoading}
               className="button-primary w-full disabled:opacity-60"
             >
-              {isLoading ? "Uploading..." : "Create Document"}
+              {isLoading ? "Uploading..." : "Create and continue"}
             </button>
+            <p className="muted-copy text-center text-xs">
+              After creation, select reviewers, review the uploaded file, and
+              submit it for signed approval.
+            </p>
           </form>
         </div>
       </div>
