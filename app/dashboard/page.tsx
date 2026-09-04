@@ -57,6 +57,13 @@ export default async function DashboardPage() {
         .order("due_at", { ascending: true, nullsFirst: false })
     : Promise.resolve({ data: [] as PendingReviewRow[] });
 
+  const systemPendingApprovalsPromise = isAdmin
+    ? supabase
+        .from("approvals")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "pending")
+    : Promise.resolve({ count: null });
+
   const unreadPromise = supabase
     .from("notifications")
     .select("*", { count: "exact", head: true })
@@ -99,6 +106,7 @@ export default async function DashboardPage() {
     chartDocsResult,
     approvalRatioResult,
     ownedStatusResult,
+    systemPendingApprovalsResult,
   ] = await Promise.all([
     documentCountPromise,
     pendingReviewsPromise,
@@ -106,12 +114,14 @@ export default async function DashboardPage() {
     chartDocsPromise,
     approvalRatioPromise,
     ownedStatusPromise,
+    systemPendingApprovalsPromise,
     remindersPromise,
   ]);
 
   const documentCount = documentCountResult.count;
   const pendingReviews = (pendingReviewsResult.data || []) as PendingReviewRow[];
   const unreadCount = unreadResult.count ?? 0;
+  const systemPendingApprovalsCount = systemPendingApprovalsResult.count ?? 0;
   const chartDocs = chartDocsResult.data;
   const ratioData = approvalRatioResult.data;
 
@@ -138,6 +148,16 @@ export default async function DashboardPage() {
   const documentsCaption = isAdmin
     ? "Total documents in the system"
     : "Documents you own";
+  const pendingReviewsTitle = isAdmin
+    ? "My Pending Reviews"
+    : "Pending Reviews";
+  const pendingReviewsCaption = "Assigned to you";
+  const quickActionsTitle = isAdmin
+    ? "Administrative Actions"
+    : "Quick Actions";
+  const quickActionsIntro = isAdmin
+    ? "Manage accounts, submissions, approvals, and audit history for the department."
+    : "Continue the academic document approval workflow.";
   const dashboardIntro = isAdmin
     ? "Monitor academic submissions, reviewer workload, approvals, and audit activity across the department."
     : canReview
@@ -198,49 +218,51 @@ export default async function DashboardPage() {
     <main className="page-shell text-gray-900">
       <DashboardRealtime userId={user.id} isAdmin={isAdmin} />
       <div className="page-container">
-        <div className="topbar mb-8">
-          <div>
+        <header className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
             <p className="eyebrow">Workspace Overview</p>
             <h1 className="mt-3 text-4xl font-semibold tracking-tight text-gray-900">
               Dashboard
             </h1>
             <p className="muted-copy mt-2">{dashboardIntro}</p>
+
+            <nav className="mt-5 flex flex-wrap items-center gap-2">
+              <ActiveLink href="/documents" className="button-secondary">
+                Documents
+              </ActiveLink>
+
+              {canReview && (
+                <ActiveLink href="/reviews" className="button-secondary">
+                  Reviews
+                </ActiveLink>
+              )}
+
+              {isAdmin && (
+                <ActiveLink href="/admin" className="button-primary">
+                  Admin Panel
+                </ActiveLink>
+              )}
+            </nav>
           </div>
 
-          <div className="topbar-nav">
-            <ActiveLink href="/documents" className="button-secondary">
-              Documents
-            </ActiveLink>
-
-            {canReview && (
-              <ActiveLink href="/reviews" className="button-secondary">
-                Reviews
-              </ActiveLink>
-            )}
-
-            {isAdmin && (
-              <ActiveLink href="/admin" className="button-primary">
-                Admin Panel
-              </ActiveLink>
-            )}
-
+          <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+            <NotificationBell />
             <UserBadge
               fullName={profile?.full_name}
               email={user.email}
               role={role}
             />
-
-            <NotificationBell />
-
             <LogoutButton />
           </div>
-        </div>
+        </header>
 
         <div
-          className={`grid gap-4 ${canReview ? "md:grid-cols-3" : "md:grid-cols-2"}`}
+          className={`grid gap-4 ${
+            isAdmin ? "md:grid-cols-4" : canReview ? "md:grid-cols-3" : "md:grid-cols-2"
+          }`}
         >
           <div className="metric-card rounded-[1.75rem] p-6">
-            <h2 className="text-sm font-medium text-gray-500">
+            <h2 className="text-sm font-medium text-gray-700">
               Documents
             </h2>
 
@@ -253,8 +275,8 @@ export default async function DashboardPage() {
 
           {canReview && (
             <div className="metric-card rounded-[1.75rem] p-6">
-              <h2 className="text-sm font-medium text-gray-500">
-                Pending Reviews
+              <h2 className="text-sm font-medium text-gray-700">
+                {pendingReviewsTitle}
               </h2>
 
               <p className="mt-3 text-4xl font-semibold text-gray-900">
@@ -262,37 +284,56 @@ export default async function DashboardPage() {
               </p>
 
               <p className="muted-copy mt-2 text-sm">
-                Documents assigned to you for review
+                {pendingReviewsCaption}
+              </p>
+              {(overdueCount > 0 || dueSoonCount > 0) && (
+                <p className="mt-1 text-sm">
                 {overdueCount > 0 && (
-                  <>
-                    {" - "}
-                    <span className="font-semibold text-red-600">
-                      {overdueCount} overdue
-                    </span>
-                  </>
+                  <span className="font-semibold text-red-600">
+                    {overdueCount} overdue
+                  </span>
+                )}
+                {overdueCount > 0 && dueSoonCount > 0 && (
+                  <span className="text-gray-500"> - </span>
                 )}
                 {dueSoonCount > 0 && (
-                  <>
-                    {" - "}
-                    <span className="font-semibold text-amber-600">
-                      {dueSoonCount} due soon
-                    </span>
-                  </>
+                  <span className="font-semibold text-amber-600">
+                    {dueSoonCount} due soon
+                  </span>
                 )}
+                </p>
+              )}
+            </div>
+          )}
+
+          {isAdmin && (
+            <div className="metric-card rounded-[1.75rem] p-6">
+              <h2 className="text-sm font-medium text-gray-700">
+                System-wide Pending Approvals
+              </h2>
+
+              <p className="mt-3 text-4xl font-semibold text-gray-900">
+                {systemPendingApprovalsCount}
+              </p>
+
+              <p className="muted-copy mt-2 text-sm">
+                Approval records awaiting reviewer action
               </p>
             </div>
           )}
 
           <div className="metric-card rounded-[1.75rem] p-6">
-            <h2 className="text-sm font-medium text-gray-500">
-              Notifications
+            <h2 className="text-sm font-medium text-gray-700">
+              Unread Notifications
             </h2>
 
             <p className="mt-3 text-4xl font-semibold text-gray-900">
               {unreadCount}
             </p>
 
-            <p className="muted-copy mt-2 text-sm">Unread notifications</p>
+            <p className="muted-copy mt-2 text-sm">
+              Same unread source as the header badge
+            </p>
           </div>
         </div>
 
@@ -404,12 +445,63 @@ export default async function DashboardPage() {
         )}
 
         <div className="mt-8">
-          <h2 className="text-lg font-semibold text-gray-900">Quick Actions</h2>
+          <h2 className="text-lg font-semibold text-gray-900">
+            {quickActionsTitle}
+          </h2>
           <p className="muted-copy mt-1 text-sm">
-            Continue the academic document approval workflow.
+            {quickActionsIntro}
           </p>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {isAdmin ? (
+              <>
+                <Link href="/admin/users" className="metric-card p-5">
+                  <h3 className="text-base font-semibold text-gray-900">
+                    User Management
+                  </h3>
+                  <p className="muted-copy mt-1.5 text-sm leading-6">
+                    Manage academic roles and account approval.
+                  </p>
+                </Link>
+
+                <Link href="/admin/documents" className="metric-card p-5">
+                  <h3 className="text-base font-semibold text-gray-900">
+                    All Documents
+                  </h3>
+                  <p className="muted-copy mt-1.5 text-sm leading-6">
+                    Browse academic submissions across the department.
+                  </p>
+                </Link>
+
+                <Link href="/admin/approvals" className="metric-card p-5">
+                  <h3 className="text-base font-semibold text-gray-900">
+                    All Approvals
+                  </h3>
+                  <p className="muted-copy mt-1.5 text-sm leading-6">
+                    Monitor reviewer decisions and deadlines.
+                  </p>
+                </Link>
+
+                <Link href="/admin/audit-logs" className="metric-card p-5">
+                  <h3 className="text-base font-semibold text-gray-900">
+                    Audit Logs
+                  </h3>
+                  <p className="muted-copy mt-1.5 text-sm leading-6">
+                    Inspect the complete activity history.
+                  </p>
+                </Link>
+
+                <Link href="/reviews" className="metric-card p-5 md:col-span-2">
+                  <h3 className="text-base font-semibold text-gray-900">
+                    Review Queue
+                  </h3>
+                  <p className="muted-copy mt-1.5 text-sm leading-6">
+                    Open reviews assigned personally to this administrator.
+                  </p>
+                </Link>
+              </>
+            ) : (
+              <>
             {canReview && (
               <Link href="/reviews" className="metric-card p-5">
                 <h3 className="text-base font-semibold text-gray-900">
@@ -485,19 +577,7 @@ export default async function DashboardPage() {
                 </p>
               </div>
             )}
-
-            {isAdmin && (
-              <Link
-                href="/admin"
-                className="metric-card p-5 md:col-span-2"
-              >
-                <h3 className="text-base font-semibold text-gray-900">
-                  Admin Panel
-                </h3>
-                <p className="muted-copy mt-1.5 text-sm leading-6">
-                  Manage users, roles, view all documents, approvals, and audit logs.
-                </p>
-              </Link>
+              </>
             )}
           </div>
         </div>

@@ -59,7 +59,7 @@ export default function DashboardCharts({
           <h2 className="text-lg font-semibold text-gray-900">
             Documents by Status
           </h2>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs font-medium text-gray-600">
             {totalDocs} total
           </span>
         </div>
@@ -78,9 +78,9 @@ export default function DashboardCharts({
                     <span className="font-medium capitalize text-gray-700">
                       {status}
                     </span>
-                    <span className="text-gray-500">
+                    <span className="text-gray-600">
                       {count}
-                      <span className="ml-2 text-xs text-gray-400">
+                      <span className="ml-2 text-xs text-gray-500">
                         ({pct.toFixed(0)}%)
                       </span>
                     </span>
@@ -104,7 +104,7 @@ export default function DashboardCharts({
           <h2 className="text-lg font-semibold text-gray-900">
             Documents by Month
           </h2>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs font-medium text-gray-600">
             Last 6 months
           </span>
         </div>
@@ -131,11 +131,13 @@ export default function DashboardCharts({
                   className="relative flex w-full items-end justify-center rounded-t-xl bg-gray-100/70"
                   style={{ height: `${PLOT_HEIGHT}px` }}
                 >
-                  {m.count > 0 && (
-                    <span className="absolute -top-5 text-xs font-semibold text-gray-700">
-                      {m.count}
-                    </span>
-                  )}
+                  <span
+                    className={`absolute -top-5 text-xs font-semibold ${
+                      m.count > 0 ? "text-gray-700" : "text-gray-400"
+                    }`}
+                  >
+                    {m.count}
+                  </span>
                   <div
                     className="w-full rounded-t-xl bg-gradient-to-t from-teal-600 to-teal-400 transition-all"
                     style={{ height: `${barHeight}px` }}
@@ -154,10 +156,10 @@ export default function DashboardCharts({
             <h2 className="text-lg font-semibold text-gray-900">
               Approval / Rejection Ratio
             </h2>
-            <span className="text-xs text-gray-400">
-              {totalDecided} decisions
+            <span className="text-xs font-medium text-gray-600">
+              {totalDecided} completed decisions
               {approvalRatio.pending > 0 &&
-                ` - ${approvalRatio.pending} pending`}
+                ` - ${approvalRatio.pending} pending approvals`}
             </span>
           </div>
 
@@ -195,7 +197,7 @@ export default function DashboardCharts({
                     {approvalRatio.approved}
                   </p>
                   <p className="text-xs text-green-700">
-                    {approvedPct.toFixed(0)}% of decisions
+                    {approvedPct.toFixed(0)}% of completed decisions
                   </p>
                 </div>
 
@@ -215,7 +217,7 @@ export default function DashboardCharts({
                     {approvalRatio.rejected}
                   </p>
                   <p className="text-xs text-red-700">
-                    {rejectedPct.toFixed(0)}% of decisions
+                    {rejectedPct.toFixed(0)}% of completed decisions
                   </p>
                 </div>
               </div>

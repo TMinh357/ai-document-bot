@@ -44,6 +44,8 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [items, setItems] = useState<Notification[]>([]);
+  const [unreadTotal, setUnreadTotal] = useState(0);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -60,15 +62,24 @@ export default function NotificationBell() {
         setLoaded(true);
         return;
       }
+      setUserId(user.id);
 
-      const { data } = await supabase
-        .from("notifications")
-        .select("id, type, title, message, document_id, is_read, created_at")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(RECENT_LIMIT);
+      const [itemsResult, unreadResult] = await Promise.all([
+        supabase
+          .from("notifications")
+          .select("id, type, title, message, document_id, is_read, created_at")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(RECENT_LIMIT),
+        supabase
+          .from("notifications")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("is_read", false),
+      ]);
       if (cancelled) return;
-      setItems((data ?? []) as Notification[]);
+      setItems((itemsResult.data ?? []) as Notification[]);
+      setUnreadTotal(unreadResult.count ?? 0);
       setLoaded(true);
 
       channel = supabase
@@ -83,6 +94,9 @@ export default function NotificationBell() {
           },
           (payload) => {
             const next = payload.new as Notification;
+            if (!next.is_read) {
+              setUnreadTotal((count) => count + 1);
+            }
             setItems((prev) => {
               if (prev.some((n) => n.id === next.id)) return prev;
               return [next, ...prev].slice(0, RECENT_LIMIT);
@@ -99,11 +113,17 @@ export default function NotificationBell() {
           },
           (payload) => {
             const updated = payload.new as Notification;
-            setItems((prev) =>
-              prev.map((n) =>
+            setItems((prev) => {
+              const previous = prev.find((n) => n.id === updated.id);
+              if (previous && previous.is_read !== updated.is_read) {
+                setUnreadTotal((count) =>
+                  Math.max(0, count + (updated.is_read ? -1 : 1))
+                );
+              }
+              return prev.map((n) =>
                 n.id === updated.id ? { ...n, is_read: updated.is_read } : n
-              )
-            );
+              );
+            });
           }
         )
         .subscribe();
@@ -140,16 +160,16 @@ export default function NotificationBell() {
     };
   }, [open]);
 
-  const unreadCount = items.filter((n) => !n.is_read).length;
-
   async function markAllRead() {
     const unreadIds = items.filter((n) => !n.is_read).map((n) => n.id);
-    if (!unreadIds.length) return;
+    if ((!unreadIds.length && unreadTotal === 0) || !userId) return;
     setItems((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    setUnreadTotal(0);
     await supabase
       .from("notifications")
       .update({ is_read: true })
-      .in("id", unreadIds);
+      .eq("user_id", userId)
+      .eq("is_read", false);
   }
 
   async function handleItemClick(n: Notification) {
@@ -157,6 +177,7 @@ export default function NotificationBell() {
       setItems((prev) =>
         prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x))
       );
+      setUnreadTotal((count) => Math.max(0, count - 1));
       await supabase
         .from("notifications")
         .update({ is_read: true })
@@ -192,9 +213,9 @@ export default function NotificationBell() {
           <path d="M10 19a2 2 0 0 0 4 0" />
         </svg>
 
-        {loaded && unreadCount > 0 && (
+        {loaded && unreadTotal > 0 && (
           <span className="absolute -right-0.5 -top-0.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-[18px] text-white shadow ring-2 ring-white">
-            {unreadCount > 9 ? "9+" : unreadCount}
+            {unreadTotal}
           </span>
         )}
       </button>
@@ -209,13 +230,13 @@ export default function NotificationBell() {
               <h3 className="text-sm font-semibold text-gray-900">
                 Notifications
               </h3>
-              {unreadCount > 0 && (
+              {unreadTotal > 0 && (
                 <span className="inline-flex items-center rounded-full bg-teal-600 px-2 py-0.5 text-[10px] font-bold text-white">
-                  {unreadCount} new
+                  {unreadTotal} unread
                 </span>
               )}
             </div>
-            {unreadCount > 0 && (
+            {unreadTotal > 0 && (
               <button
                 onClick={markAllRead}
                 className="text-xs font-semibold text-teal-700 hover:text-teal-900"
