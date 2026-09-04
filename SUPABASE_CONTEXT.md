@@ -1,7 +1,8 @@
 # Supabase Context for AI Document Review Assistant
 
 > Schema reference reflecting the current state of the database.
-> Last refreshed: 2026-06-09 (verified against source). All migrations documented
+> Last refreshed: 2026-09-04 (RLS section verified against the live database via
+> the Management API; schema section verified against source). All migrations documented
 > in `PROJECT_STATE.md` have been applied.
 
 ## 1. Project Overview
@@ -198,9 +199,11 @@ The permissive `USING (TRUE)` SELECT policy that previously existed was dropped 
 
 | Command | Using / Check |
 |---|---|
-| SELECT | EXISTS parent document — inherits RLS from `documents` |
+| SELECT | EXISTS parent document AND (caller owns it OR caller is admin OR caller has an approval row on it) |
 | INSERT | `auth.uid() = created_by` |
 | UPDATE | `created_by = auth.uid()` OR caller owns the parent document |
+
+> A second, looser SELECT policy (`EXISTS parent document`, with no owner/reviewer/admin predicate) sat alongside this one until 2026-09-04. Because Postgres OR-combines PERMISSIVE policies, it overrode the strict policy and exposed `file_path`/`content_text` for every document to any authenticated user. Dropped in `migrations/2026-09-04-fix-duplicate-rls-policies.sql`; verified afterwards by JWT impersonation (unrelated employee sees 0 rows, owner sees 1).
 
 ### `approvals`
 
@@ -225,8 +228,9 @@ The permissive `USING (TRUE)` SELECT policy that previously existed was dropped 
 | Command | Using / Check |
 |---|---|
 | SELECT | authenticated TRUE (admin audit log viewer) |
-| SELECT (own) | `auth.uid() = user_id` |
 | INSERT | `auth.uid() = user_id` |
+
+> A redundant own-rows-only SELECT policy was dropped on 2026-09-04; the broader authenticated policy above already superseded it.
 
 ### `document_ai_messages`, `document_ai_results`, `document_signatures`
 

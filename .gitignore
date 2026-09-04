@@ -43,3 +43,9 @@ next-env.d.ts
 # local scratch files
 tmp_*.txt
 .playwright-cli/
+
+# personal defense notes (not part of the submission)
+DEFENSE_QA_RLS.md
+
+# supabase cli local state (contains connection details)
+supabase/.temp/
