@@ -27,6 +27,7 @@ export default function UploadNewVersionForm({
 
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"error" | "success">("error");
   const [isLoading, setIsLoading] = useState(false);
 
   if (documentStatus !== "draft" && documentStatus !== "rejected") {
@@ -38,6 +39,7 @@ export default function UploadNewVersionForm({
   async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
     setMessage("");
+    setMessageTone("error");
 
     if (!file) {
       setMessage("Please select a PDF file.");
@@ -80,26 +82,37 @@ export default function UploadNewVersionForm({
       return;
     }
 
-    const response = await fetch(`/api/documents/${documentId}/versions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        stagingPath,
-        fileName: file.name,
-      }),
-    });
+    try {
+      const response = await fetch(`/api/documents/${documentId}/versions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stagingPath,
+          fileName: file.name,
+        }),
+      });
 
-    const result = await response.json();
+      const result = await response.json();
 
-    if (!response.ok) {
-      setMessage(result?.error || "Failed to upload new version.");
+      if (!response.ok) {
+        setMessage(result?.error || "Failed to upload new version.");
+        return;
+      }
+
+      setFile(null);
+      setMessageTone("success");
+      setMessage(
+        `Uploaded version ${result?.versionNo ?? ""}`.trim() +
+          ". The document is back to draft — submit it for review when ready."
+      );
+      router.refresh();
+    } catch {
+      setMessage(
+        "Could not reach the server. Your file was not registered — check your connection and try again."
+      );
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    setFile(null);
-    setIsLoading(false);
-    router.refresh();
   }
 
   return (
@@ -130,7 +143,17 @@ export default function UploadNewVersionForm({
           </p>
         )}
 
-        {message && <p className="text-sm text-red-600">{message}</p>}
+        {message && (
+          <p
+            role="status"
+            aria-live="polite"
+            className={`text-sm ${
+              messageTone === "success" ? "text-teal-700" : "text-red-600"
+            }`}
+          >
+            {message}
+          </p>
+        )}
 
         <button
           type="submit"

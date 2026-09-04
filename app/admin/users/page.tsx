@@ -113,7 +113,7 @@ export default async function AdminUsersPage() {
                       {row.full_name}
                     </h3>
                     <p className="muted-copy mt-1 text-sm">{row.email}</p>
-                    <p className="mt-1 text-xs uppercase tracking-[0.14em] text-gray-400">
+                    <p className="mt-1 text-xs uppercase tracking-[0.14em] text-gray-500">
                       Joined <FormattedDate value={row.created_at} dateOnly />
                     </p>
                   </div>

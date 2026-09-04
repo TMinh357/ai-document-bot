@@ -68,27 +68,36 @@ export default function NewDocumentPage() {
       return;
     }
 
-    const response = await fetch("/api/documents", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title,
-        description,
-        stagingPath,
-        fileName: file.name,
-      }),
-    });
+    try {
+      const response = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          description,
+          stagingPath,
+          fileName: file.name,
+        }),
+      });
 
-    const result = await response.json();
+      const result = await response.json();
 
-    if (!response.ok) {
-      setMessage(result?.error || "Failed to create document.");
+      if (!response.ok) {
+        setMessage(result?.error || "Failed to create document.");
+        setIsLoading(false);
+        return;
+      }
+
+      // Keep the button disabled through the navigation so the form cannot be
+      // submitted twice while the next page loads.
+      router.push("/documents");
+      router.refresh();
+    } catch {
+      setMessage(
+        "Could not reach the server. Your document was not created — check your connection and try again."
+      );
       setIsLoading(false);
-      return;
     }
-
-    router.push("/documents");
-    router.refresh();
   }
 
   return (

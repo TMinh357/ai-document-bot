@@ -269,7 +269,7 @@ export default async function AdminDocumentsPage({ searchParams }: PageProps) {
                       <p className="muted-copy mt-1 text-sm">
                         {doc.description || "No description"}
                       </p>
-                      <div className="mt-2 flex flex-wrap gap-3 text-xs uppercase tracking-[0.14em] text-gray-400">
+                      <div className="mt-2 flex flex-wrap gap-3 text-xs uppercase tracking-[0.14em] text-gray-500">
                         <span>
                           Owner:{" "}
                           <span className="font-medium text-gray-600">

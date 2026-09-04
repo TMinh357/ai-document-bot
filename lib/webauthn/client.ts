@@ -43,6 +43,30 @@ export async function signFileHashWithWebAuthn(args: {
   });
 }
 
+// Turn a raw WebAuthn DOMException into something a reviewer can act on.
+// The browser reports a user who dismissed the Windows Hello prompt with the
+// same NotAllowedError it uses for a timeout, and its default text ("The
+// operation either timed out or was not allowed") reads like a crash.
+export function describeSigningError(error: unknown): string {
+  const name = (error as { name?: string })?.name;
+
+  switch (name) {
+    case "NotAllowedError":
+      return "Signing was cancelled or timed out. Please try again and complete the Windows Hello prompt.";
+    case "InvalidStateError":
+      return "This device's signing key is not registered for your account. Set up your signing key again from your profile.";
+    case "NotSupportedError":
+    case "SecurityError":
+      return "This browser or device cannot sign documents. Use a device with Windows Hello, Touch ID, or an equivalent platform authenticator.";
+    case "AbortError":
+      return "Signing was interrupted. Please try again.";
+    default:
+      return error instanceof Error && error.message
+        ? error.message
+        : "Signing failed. Please try again.";
+  }
+}
+
 // Derive the rpId on the client side from the current hostname.
 export function getClientRpId(): string {
   if (typeof window !== "undefined" && window.location?.hostname) {

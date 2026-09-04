@@ -114,7 +114,7 @@ export default function NotificationPanel({
                         </p>
                       )}
 
-                      <p className="mt-1 text-xs text-gray-400">
+                      <p className="mt-1 text-xs text-gray-500">
                         <FormattedDate value={n.created_at} />
                       </p>
                     </div>

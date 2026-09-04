@@ -75,7 +75,7 @@ export default async function AdminApprovalsPage() {
                       {docMap.get(approval.document_id) ?? "Unknown Document"}
                     </h3>
 
-                    <div className="mt-2 flex flex-wrap gap-3 text-xs uppercase tracking-[0.14em] text-gray-400">
+                    <div className="mt-2 flex flex-wrap gap-3 text-xs uppercase tracking-[0.14em] text-gray-500">
                       <span>
                         Reviewer:{" "}
                         <span className="font-medium text-gray-600">

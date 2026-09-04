@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import SigningKeySetup from "./SigningKeySetup";
 import { formatRoleLabel } from "@/lib/role-labels";
 import {
+  describeSigningError,
   getClientRpId,
   signFileHashWithWebAuthn,
 } from "@/lib/webauthn/client";
@@ -44,6 +45,7 @@ export default function SubmitForReviewForm({
   const [dueInDays, setDueInDays] = useState(7);
   const [filterText, setFilterText] = useState("");
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"error" | "success">("error");
   const [phase, setPhase] = useState<Phase>("idle");
   const [showKeySetup, setShowKeySetup] = useState(false);
   const [credentialId, setCredentialId] = useState<string | null>(
@@ -110,13 +112,26 @@ export default function SubmitForReviewForm({
       const result = await response.json();
 
       if (!response.ok) {
+        setMessageTone("error");
         setMessage(result?.error || "Failed to submit for review.");
         return;
       }
 
+      const count = result?.reviewerCount ?? reviewerIds.length;
+      const due = result?.dueAt
+        ? new Date(result.dueAt).toLocaleDateString()
+        : null;
+      setMessageTone("success");
+      setMessage(
+        `Signed and submitted to ${count} reviewer${count === 1 ? "" : "s"}` +
+          (due ? `, due ${due}.` : ".")
+      );
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Submission failed.");
+      setMessageTone("error");
+      setMessage(
+        err instanceof Error ? describeSigningError(err) : "Submission failed."
+      );
     } finally {
       setPhase("idle");
     }
@@ -129,6 +144,7 @@ export default function SubmitForReviewForm({
     const reviewerIds = Array.from(selectedIds);
 
     if (reviewerIds.length === 0) {
+      setMessageTone("error");
       setMessage("Select at least one reviewer.");
       return;
     }
@@ -273,7 +289,17 @@ export default function SubmitForReviewForm({
             </div>
           </div>
 
-          {message && <p className="text-sm text-red-600">{message}</p>}
+          {message && (
+            <p
+              role="status"
+              aria-live="polite"
+              className={`text-sm ${
+                messageTone === "success" ? "text-teal-700" : "text-red-600"
+              }`}
+            >
+              {message}
+            </p>
+          )}
 
           <button
             type="submit"

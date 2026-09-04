@@ -284,7 +284,7 @@ export default function NotificationBell() {
                               {n.message}
                             </span>
                           )}
-                          <span className="mt-1 block text-[11px] text-gray-400">
+                          <span className="mt-1 block text-[11px] text-gray-500">
                             {formatRelative(n.created_at)}
                           </span>
                         </span>

@@ -60,6 +60,9 @@ export default function InlinePdfViewer({
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1);
   const [highlights, setHighlights] = useState<Highlight[]>(initialHighlights);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(
+    null
+  );
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelection | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
@@ -122,11 +125,20 @@ export default function InlinePdfViewer({
 
     const lastRect = clientRects[clientRects.length - 1];
 
+    // Clamp here, where the page width is already measured, rather than
+    // reading the container ref during render (which returns a stale width on
+    // the first paint and makes the popover jump to the left edge).
+    const POPOVER_WIDTH = 290;
+    const popoverLeft = Math.min(
+      lastRect.right - pageRect.left,
+      Math.max(0, pageRect.width - POPOVER_WIDTH)
+    );
+
     setPendingSelection({
       text,
       pageNumber,
       rects,
-      popoverLeft: lastRect.right - pageRect.left,
+      popoverLeft,
       popoverTop: lastRect.bottom - pageRect.top + 6,
     });
     setCommentDraft("");
@@ -166,21 +178,32 @@ export default function InlinePdfViewer({
   }
 
   async function deleteHighlight(highlightId: string) {
-    if (!confirm("Delete this highlight?")) return;
-
-    const response = await fetch(
-      `/api/documents/${documentId}/highlights/${highlightId}`,
-      { method: "DELETE" }
-    );
-
-    if (!response.ok) {
-      const result = await response.json().catch(() => ({}));
-      setError(result?.error || "Failed to delete highlight.");
+    // Two-step confirm in the sidebar itself, matching the pattern used by
+    // DeleteDraftButton, rather than a native browser dialog.
+    if (confirmingDeleteId !== highlightId) {
+      setConfirmingDeleteId(highlightId);
       return;
     }
 
-    setHighlights((prev) => prev.filter((h) => h.id !== highlightId));
-    setActiveHighlightId((prev) => (prev === highlightId ? null : prev));
+    setConfirmingDeleteId(null);
+
+    try {
+      const response = await fetch(
+        `/api/documents/${documentId}/highlights/${highlightId}`,
+        { method: "DELETE" }
+      );
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        setError(result?.error || "Failed to delete highlight.");
+        return;
+      }
+
+      setHighlights((prev) => prev.filter((h) => h.id !== highlightId));
+      setActiveHighlightId((prev) => (prev === highlightId ? null : prev));
+    } catch {
+      setError("Could not reach the server. Please try again.");
+    }
   }
 
   function jumpToHighlight(highlight: Highlight) {
@@ -319,13 +342,7 @@ export default function InlinePdfViewer({
                 <div
                   className="absolute z-10 w-72 rounded-2xl border border-gray-200 bg-white p-4 shadow-lg"
                   style={{
-                    left: Math.min(
-                      pendingSelection.popoverLeft,
-                      Math.max(
-                        0,
-                        (pageContainerRef.current?.clientWidth || 0) - 290
-                      )
-                    ),
+                    left: pendingSelection.popoverLeft,
                     top: pendingSelection.popoverTop,
                   }}
                   onClick={(e) => e.stopPropagation()}
@@ -401,11 +418,20 @@ export default function InlinePdfViewer({
                   );
                 })
                 .map((h) => (
-                  <button
+                  // A div rather than a button: the Delete control below is
+                  // itself a button, and nesting buttons is invalid HTML.
+                  <div
                     key={h.id}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => jumpToHighlight(h)}
-                    className={`block w-full px-4 py-3 text-left transition-colors ${
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        jumpToHighlight(h);
+                      }
+                    }}
+                    className={`block w-full cursor-pointer px-4 py-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 ${
                       activeHighlightId === h.id
                         ? "bg-yellow-50"
                         : "hover:bg-gray-50"
@@ -425,23 +451,39 @@ export default function InlinePdfViewer({
                       </div>
 
                       {h.reviewer_id === currentUserId && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteHighlight(h.id);
-                          }}
-                          className="text-xs font-medium text-red-600 hover:text-red-800"
-                          title="Delete this highlight"
-                        >
-                          Delete
-                        </button>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteHighlight(h.id);
+                            }}
+                            className="text-xs font-medium text-red-600 hover:text-red-800"
+                            title="Delete this highlight"
+                          >
+                            {confirmingDeleteId === h.id
+                              ? "Confirm"
+                              : "Delete"}
+                          </button>
+                          {confirmingDeleteId === h.id && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setConfirmingDeleteId(null);
+                              }}
+                              className="text-xs font-medium text-gray-500 hover:text-gray-700"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </span>
                       )}
                     </div>
-                    <p className="mt-2 text-[10px] uppercase tracking-[0.14em] text-gray-400">
+                    <p className="mt-2 text-[10px] uppercase tracking-[0.14em] text-gray-500">
                       <FormattedDate value={h.created_at} />
                     </p>
-                  </button>
+                  </div>
                 ))
             )}
           </div>

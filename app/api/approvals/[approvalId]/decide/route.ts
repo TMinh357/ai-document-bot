@@ -116,7 +116,7 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json(
         {
           error:
-            "This document is no longer pending review (it may already be approved, rejected, or signed).",
+            "This document is no longer pending review (it may already be approved or rejected).",
         },
         { status: 400 }
       );
@@ -255,21 +255,59 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
+    // Our own UPDATE above is already committed, but a concurrent reviewer's
+    // write may not be visible to this SELECT yet. Treat our row as decided
+    // regardless of what came back, so two reviewers approving at the same
+    // moment cannot both read a stale "still pending" round and leave the
+    // document stuck at pending forever.
+    const settledApprovals = roundApprovals.map((a) =>
+      a.id === approvalId ? { ...a, status: decision } : a
+    );
+
     let nextDocStatus: "pending" | "approved" | "rejected" = "pending";
 
     if (decision === "rejected") {
       nextDocStatus = "rejected";
-    } else if (roundApprovals.every((a) => a.status === "approved")) {
+    } else if (settledApprovals.every((a) => a.status === "approved")) {
       nextDocStatus = "approved";
+    } else {
+      // We are approving but someone else still looks pending. That may be a
+      // stale read of a reviewer who is deciding concurrently, so re-check
+      // once before leaving the round open. Whichever request re-reads last
+      // sees the complete picture and finalizes the document.
+      const { data: recheck } = await admin
+        .from("approvals")
+        .select("id, status")
+        .eq("document_id", approval.document_id)
+        .eq("round_no", currentRound);
+
+      if (
+        recheck &&
+        recheck.every((a) =>
+          a.id === approvalId ? true : a.status === "approved"
+        )
+      ) {
+        nextDocStatus = "approved";
+      }
     }
 
     if (nextDocStatus !== "pending") {
-      // When unanimously approved, snapshot the file hash so the sign route
-      // can detect any tampering that happens before the owner clicks Sign.
-      // When unanimously approved, snapshot the file hash. We already
-      // computed it above when verifying the reviewer's signature, so reuse.
-      const approvedHash =
-        nextDocStatus === "approved" ? reviewerFileHash : null;
+      // When unanimously approved, snapshot the file hash so later verification
+      // can detect tampering against the exact bytes that were approved. This
+      // is normally the hash we computed while verifying this reviewer's
+      // signature; fall back to recomputing rather than storing NULL.
+      let approvedHash: string | null = null;
+      if (nextDocStatus === "approved") {
+        if (reviewerFileHash) {
+          approvedHash = reviewerFileHash;
+        } else {
+          const fallback = await getOrComputeLatestVersionHash(
+            admin,
+            document.id
+          );
+          approvedHash = fallback.ok ? fallback.data.hash : null;
+        }
+      }
 
       const docUpdate: Record<string, unknown> = {
         status: nextDocStatus,
@@ -277,10 +315,13 @@ export async function POST(request: Request, context: RouteContext) {
       };
       if (approvedHash) docUpdate.approved_hash = approvedHash;
 
+      // Only transition out of 'pending'. If a concurrent reviewer already
+      // finalized this round, their write wins and we must not overwrite it.
       const { error: docUpdateError } = await admin
         .from("documents")
         .update(docUpdate)
-        .eq("id", document.id);
+        .eq("id", document.id)
+        .eq("status", "pending");
 
       if (docUpdateError) {
         return NextResponse.json(

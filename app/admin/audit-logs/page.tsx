@@ -252,7 +252,7 @@ export default async function AdminAuditLogsPage({ searchParams }: PageProps) {
                           {formatActionLabel(log.action)}
                         </span>
                         {log.target_table && (
-                          <span className="text-xs text-gray-400">
+                          <span className="text-xs text-gray-500">
                             on{" "}
                             <span className="font-medium text-gray-600">
                               {log.target_table}
@@ -281,7 +281,7 @@ export default async function AdminAuditLogsPage({ searchParams }: PageProps) {
                               : "System"}
                           </span>
                           {log.user_id && profileMap.get(log.user_id)?.role && (
-                            <span className="ml-1 text-gray-400">
+                            <span className="ml-1 text-gray-500">
                               (
                               {formatRoleLabel(
                                 profileMap.get(log.user_id)?.role
@@ -296,7 +296,7 @@ export default async function AdminAuditLogsPage({ searchParams }: PageProps) {
                       {log.metadata &&
                         Object.keys(log.metadata).length > 0 && (
                           <details className="mt-2">
-                            <summary className="cursor-pointer text-xs font-medium text-gray-400 hover:text-gray-600">
+                            <summary className="cursor-pointer text-xs font-medium text-gray-500 hover:text-gray-600">
                               Technical metadata
                             </summary>
                             <pre className="mt-1 overflow-x-auto rounded-lg border border-gray-200 bg-white/60 p-3 font-mono text-xs text-gray-600">

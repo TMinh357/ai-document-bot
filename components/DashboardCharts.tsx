@@ -133,7 +133,7 @@ export default function DashboardCharts({
                 >
                   <span
                     className={`absolute -top-5 text-xs font-semibold ${
-                      m.count > 0 ? "text-gray-700" : "text-gray-400"
+                      m.count > 0 ? "text-gray-700" : "text-gray-500"
                     }`}
                   >
                     {m.count}

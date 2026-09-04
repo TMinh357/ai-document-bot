@@ -127,7 +127,7 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     supabase
       .from("document_signatures")
       .select(
-        "id, signer_id, signature_hash, signature_bytes, algorithm, signed_at"
+        "id, signer_id, signature_hash, signature_bytes, algorithm, signed_at, signature_role, round_no"
       )
       .eq("document_id", id)
       .order("signed_at", { ascending: false }),
@@ -366,6 +366,18 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     (a) => a.status === "approved" || a.status === "rejected"
   );
   const hasSignatureEvidence = (signatures || []).length > 0;
+  // The owner signs at submission, so a single signature is not enough to call
+  // signing "done" — the round is only fully signed once every approving
+  // reviewer has added theirs too.
+  const reviewerSignatureCount = (signatures || []).filter(
+    (s) =>
+      s.signature_role === "reviewer_approval" &&
+      (s.round_no ?? currentRound) === currentRound
+  ).length;
+  const hasAllSignatures =
+    hasSignatureEvidence &&
+    totalReviewers > 0 &&
+    reviewerSignatureCount >= totalReviewers;
   const hasCompletedVerification = isCompletedVerification(
     latestVerificationLog?.metadata
   );
@@ -407,10 +419,10 @@ export default async function DocumentDetailPage({ params }: PageProps) {
             : "Not started",
     },
     {
-      label: "Sign",
-      status: hasSignatureEvidence
+      label: "Collect signatures",
+      status: hasAllSignatures
         ? "Completed"
-        : document.status === "pending"
+        : hasSignatureEvidence
           ? "Current"
           : "Not started",
     },
@@ -569,9 +581,16 @@ export default async function DocumentDetailPage({ params }: PageProps) {
             )}
 
             <p className="mt-4 text-sm text-red-800">
-              Upload a revised PDF below. The document will reset to draft so
-              you can submit it for review again. The rejection history is kept.
+              Upload a revised PDF to continue. The document will reset to draft
+              so you can submit it for review again. The rejection history is
+              kept.
             </p>
+
+            {isOwner && (
+              <a href="#upload-new-version" className="button-primary mt-4">
+                Go to upload
+              </a>
+            )}
           </section>
         )}
 
@@ -642,11 +661,13 @@ export default async function DocumentDetailPage({ params }: PageProps) {
           </div>
 
           {isOwner && latestVersion && (
-            <UploadNewVersionForm
-              documentId={document.id}
-              documentStatus={document.status}
-              latestVersionNo={latestVersion.version_no}
-            />
+            <div id="upload-new-version" className="scroll-mt-6">
+              <UploadNewVersionForm
+                documentId={document.id}
+                documentStatus={document.status}
+                latestVersionNo={latestVersion.version_no}
+              />
+            </div>
           )}
 
           {isOwner && document.status === "draft" && (

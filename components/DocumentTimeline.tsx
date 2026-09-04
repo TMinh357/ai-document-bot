@@ -62,7 +62,7 @@ export default function DocumentTimeline({
     <section className="mt-8 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
       <div className="flex items-baseline justify-between">
         <h2 className="text-2xl font-bold text-gray-900">Document Timeline</h2>
-        <span className="text-xs uppercase tracking-[0.18em] text-gray-400">
+        <span className="text-xs uppercase tracking-[0.18em] text-gray-500">
           {events.length} {events.length === 1 ? "event" : "events"}
         </span>
       </div>
