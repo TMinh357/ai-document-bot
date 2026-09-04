@@ -34,12 +34,21 @@ type VerificationMetadata = {
   all_crypto_valid?: boolean;
 };
 
+// Storage paths are {userId}/{documentId}/{timestamp}-{filename}. Show just
+// the original filename; the full path stays in the title attribute.
+function displayFileName(filePath: string | null | undefined): string {
+  if (!filePath) return "No file";
+
+  const lastSegment = filePath.split("/").pop() ?? filePath;
+  return lastSegment.replace(/^\d+-/, "");
+}
+
 function workflowStepClass(status: string): string {
   if (status === "Completed") {
     return "border-green-200 bg-green-50 text-green-800";
   }
   if (status === "Current") {
-    return "border-teal-300 bg-teal-50 text-teal-900";
+    return "border-teal-600 bg-teal-600 text-white";
   }
   return "border-gray-200 bg-white text-gray-500";
 }
@@ -436,6 +445,11 @@ export default async function DocumentDetailPage({ params }: PageProps) {
           : "Not started",
     },
   ];
+  // Which step the document is sitting on, for the one-line summary above the
+  // step chips. -1 once nothing is left in progress.
+  const currentStepIndex = workflowSteps.findIndex(
+    (s) => s.status === "Current"
+  );
   const roundDeadline = currentRoundApprovals[0]?.due_at ?? null;
   const nowMs = new Date().getTime();
 
@@ -495,22 +509,46 @@ export default async function DocumentDetailPage({ params }: PageProps) {
           </div>
 
           <div className="mt-6">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">
-              Workflow
-            </p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-              {workflowSteps.map((step, index) => (
-                <div
-                  key={step.label}
-                  className={`rounded-2xl border px-3 py-3 text-sm ${workflowStepClass(step.status)}`}
-                >
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em]">
-                    {index + 1}. {step.label}
-                  </p>
-                  <p className="mt-1 text-xs">{step.status}</p>
-                </div>
-              ))}
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">
+                Workflow
+              </p>
+              <p className="text-xs text-gray-600">
+                {document.status === "rejected" ? (
+                  <span className="font-semibold text-red-700">
+                    Round ended — revision required
+                  </span>
+                ) : currentStepIndex >= 0 ? (
+                  <>
+                    Step {currentStepIndex + 1} of {workflowSteps.length}:{" "}
+                    <span className="font-semibold text-gray-900">
+                      {workflowSteps[currentStepIndex].label}
+                    </span>
+                  </>
+                ) : (
+                  <span className="font-semibold text-green-700">
+                    All steps complete
+                  </span>
+                )}
+              </p>
             </div>
+
+            <ol className="mt-2 flex flex-wrap items-center gap-1.5">
+              {workflowSteps.map((step, index) => (
+                <li
+                  key={step.label}
+                  title={`${index + 1}. ${step.label} — ${step.status}`}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${workflowStepClass(step.status)}`}
+                >
+                  {step.status === "Completed" && (
+                    <span aria-hidden="true">✓ </span>
+                  )}
+                  {step.label}
+                  <span className="sr-only"> — {step.status}</span>
+                </li>
+              ))}
+            </ol>
+
             {document.status === "approved" && hasSignatureEvidence && (
               <p className="mt-3 text-sm font-medium text-gray-700">
                 Verification status:{" "}
@@ -614,12 +652,12 @@ export default async function DocumentDetailPage({ params }: PageProps) {
                         </p>
 
                         {isLatest ? (
-                          <>
-                            <span className="inline-flex items-center rounded-full bg-teal-100 px-2.5 py-0.5 text-xs font-semibold text-teal-800">
-                              Latest
-                            </span>
-                            <StatusBadge status={document.status} />
-                          </>
+                          // The document's own status is already shown in the
+                          // header; repeating it per version reads as though
+                          // each version carried its own status.
+                          <span className="inline-flex items-center rounded-full bg-teal-100 px-2.5 py-0.5 text-xs font-semibold text-teal-800">
+                            Latest
+                          </span>
                         ) : (
                           <span className="inline-flex items-center rounded-full bg-gray-200 px-2.5 py-0.5 text-xs font-semibold text-gray-700">
                             Superseded
@@ -631,8 +669,11 @@ export default async function DocumentDetailPage({ params }: PageProps) {
                         Uploaded at: <FormattedDate value={version.created_at} />
                       </p>
 
-                      <p className="mt-1 break-all text-xs text-gray-500">
-                        {version.file_path}
+                      <p
+                        className="mt-1 break-all text-xs text-gray-600"
+                        title={version.file_path ?? undefined}
+                      >
+                        {displayFileName(version.file_path)}
                       </p>
                     </div>
 
@@ -670,22 +711,6 @@ export default async function DocumentDetailPage({ params }: PageProps) {
             </div>
           )}
 
-          {isOwner && document.status === "draft" && (
-            <div className="mt-6 border-t border-gray-200 pt-5">
-              <p className="text-sm font-medium text-gray-700">Delete draft</p>
-              <p className="muted-copy mt-1 text-sm">
-                Permanently remove this draft and its files. Available only while
-                the document is in draft; once submitted, only an admin can
-                delete it.
-              </p>
-              <div className="mt-3">
-                <DeleteDraftButton
-                  documentId={document.id}
-                  documentTitle={document.title}
-                />
-              </div>
-            </div>
-          )}
         </section>
 
         {latestVersion && latestVersionWithUrl?.signedUrl && (
@@ -862,6 +887,29 @@ export default async function DocumentDetailPage({ params }: PageProps) {
         </section>
 
         <DocumentTimeline events={timelineEvents} />
+
+        {/* Destructive action last, well clear of the normal working flow. */}
+        {isOwner && document.status === "draft" && (
+          <section className="section-card mt-8 rounded-[2rem] border-red-100 p-6 md:p-8">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-700">
+              Danger zone
+            </p>
+            <p className="mt-3 text-base font-semibold text-gray-900">
+              Delete this draft
+            </p>
+            <p className="muted-copy mt-1 max-w-2xl text-sm leading-6">
+              Permanently removes the draft and its uploaded files. Available
+              only while the document is in draft; once submitted, only an
+              administrator can delete it.
+            </p>
+            <div className="mt-4">
+              <DeleteDraftButton
+                documentId={document.id}
+                documentTitle={document.title}
+              />
+            </div>
+          </section>
+        )}
       </div>
     </main>
   );
