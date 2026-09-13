@@ -159,7 +159,7 @@ export default function SignDocumentPanel({
               }`}
               aria-hidden
             >
-              {overallValid ? "OK" : "!"}
+              {overallValid ? "✓" : "✕"}
             </span>
 
             <div>
