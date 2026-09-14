@@ -5,14 +5,11 @@ import {
   deleteStorageObject,
   validatePdfAtPath,
 } from "@/lib/pdf-validation";
+import { safeFileName } from "@/lib/file-names";
 
 export const runtime = "nodejs";
 
 const BUCKET = "documents";
-
-function safeFileName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
-}
 
 export async function POST(request: Request) {
   try {

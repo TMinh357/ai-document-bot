@@ -15,6 +15,7 @@ import DocumentTimeline, {
 import FormattedDate from "@/components/FormattedDate";
 import { requireUser } from "@/lib/supabase/auth";
 import { REVIEW_CONTEXT_FALLBACK } from "@/lib/document-copy";
+import { displayFileName } from "@/lib/file-names";
 
 type PageProps = {
   params: Promise<{
@@ -27,15 +28,6 @@ type ReviewerProfile = {
   full_name: string | null;
   role: string;
 };
-
-// Storage paths are {userId}/{documentId}/{timestamp}-{filename}. Show just
-// the original filename; the full path stays in the title attribute.
-function displayFileName(filePath: string | null | undefined): string {
-  if (!filePath) return "No file";
-
-  const lastSegment = filePath.split("/").pop() ?? filePath;
-  return lastSegment.replace(/^\d+-/, "");
-}
 
 export default async function DocumentDetailPage({ params }: PageProps) {
   const { id } = await params;

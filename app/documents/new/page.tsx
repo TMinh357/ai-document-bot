@@ -4,13 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { safeFileName } from "@/lib/file-names";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_FILE_MB = 10;
-
-function safeFileName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
-}
 
 export default function NewDocumentPage() {
   const router = useRouter();
