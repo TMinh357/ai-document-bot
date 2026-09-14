@@ -28,12 +28,6 @@ type ReviewerProfile = {
   role: string;
 };
 
-type VerificationMetadata = {
-  file_missing?: boolean;
-  all_hashes_match?: boolean;
-  all_crypto_valid?: boolean;
-};
-
 // Storage paths are {userId}/{documentId}/{timestamp}-{filename}. Show just
 // the original filename; the full path stays in the title attribute.
 function displayFileName(filePath: string | null | undefined): string {
@@ -41,26 +35,6 @@ function displayFileName(filePath: string | null | undefined): string {
 
   const lastSegment = filePath.split("/").pop() ?? filePath;
   return lastSegment.replace(/^\d+-/, "");
-}
-
-function workflowStepClass(status: string): string {
-  if (status === "Completed") {
-    return "border-green-200 bg-green-50 text-green-800";
-  }
-  if (status === "Current") {
-    return "border-teal-600 bg-teal-600 text-white";
-  }
-  return "border-gray-200 bg-white text-gray-500";
-}
-
-function isCompletedVerification(metadata: unknown): boolean {
-  if (!metadata || typeof metadata !== "object") return false;
-  const verification = metadata as VerificationMetadata;
-  return (
-    verification.file_missing === false &&
-    verification.all_hashes_match === true &&
-    verification.all_crypto_valid === true
-  );
 }
 
 export default async function DocumentDetailPage({ params }: PageProps) {
@@ -80,7 +54,6 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     { data: latestAIResult },
     { data: aiMessages },
     { data: signatures },
-    { data: latestVerificationLog },
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -140,15 +113,6 @@ export default async function DocumentDetailPage({ params }: PageProps) {
       )
       .eq("document_id", id)
       .order("signed_at", { ascending: false }),
-    supabase
-      .from("audit_logs")
-      .select("metadata, created_at")
-      .eq("target_table", "documents")
-      .eq("target_id", id)
-      .in("action", ["VERIFY_INTEGRITY", "VERIFY_DOCUMENT_SIGNATURE"])
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
   ]);
 
   const webAuthnCredentialId = currentProfile?.webauthn_credential_id ?? null;
@@ -367,89 +331,6 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     document.status === "rejected"
       ? currentRoundApprovals.find((a) => a.status === "rejected")
       : null;
-  const hasAiPrecheck = Boolean(
-    latestAIResult?.summary || latestVersion?.content_text
-  );
-  const hasReviewRound = totalReviewers > 0;
-  const hasReviewerDecision = currentRoundApprovals.some(
-    (a) => a.status === "approved" || a.status === "rejected"
-  );
-  const hasSignatureEvidence = (signatures || []).length > 0;
-  // The owner signs at submission, so a single signature is not enough to call
-  // signing "done" — the round is only fully signed once every approving
-  // reviewer has added theirs too.
-  const reviewerSignatureCount = (signatures || []).filter(
-    (s) =>
-      s.signature_role === "reviewer_approval" &&
-      (s.round_no ?? currentRound) === currentRound
-  ).length;
-  const hasAllSignatures =
-    hasSignatureEvidence &&
-    totalReviewers > 0 &&
-    reviewerSignatureCount >= totalReviewers;
-  const hasCompletedVerification = isCompletedVerification(
-    latestVerificationLog?.metadata
-  );
-  const verificationStatus = hasCompletedVerification
-    ? "Verified"
-    : document.status === "approved" && hasSignatureEvidence
-      ? "Ready to verify"
-      : "Not available yet";
-  const workflowSteps = [
-    {
-      label: "Upload",
-      status: latestVersion ? "Completed" : "Current",
-    },
-    {
-      label: "AI pre-check",
-      status: hasAiPrecheck
-        ? "Completed"
-        : latestVersion
-          ? "Current"
-          : "Not started",
-    },
-    {
-      label: "Assign reviewers",
-      status: hasReviewRound
-        ? "Completed"
-        : latestVersion && !hasAiPrecheck
-          ? "Not started"
-          : "Current",
-    },
-    {
-      label: "Review",
-      status:
-        document.status === "approved" ||
-        document.status === "rejected" ||
-        hasReviewerDecision
-          ? "Completed"
-          : hasReviewRound
-            ? "Current"
-            : "Not started",
-    },
-    {
-      label: "Collect signatures",
-      status: hasAllSignatures
-        ? "Completed"
-        : hasSignatureEvidence
-          ? "Current"
-          : "Not started",
-    },
-    {
-      label: "Verify",
-      status:
-        hasCompletedVerification
-          ? "Completed"
-          : document.status === "approved" && hasSignatureEvidence
-          ? "Current"
-          : "Not started",
-    },
-  ];
-  // Which step the document is sitting on, for the one-line summary above the
-  // step chips. -1 once nothing is left in progress.
-  const currentStepIndex = workflowSteps.findIndex(
-    (s) => s.status === "Current"
-  );
   const roundDeadline = currentRoundApprovals[0]?.due_at ?? null;
   const nowMs = new Date().getTime();
 
@@ -508,54 +389,6 @@ export default async function DocumentDetailPage({ params }: PageProps) {
             )}
           </div>
 
-          <div className="mt-6">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">
-                Workflow
-              </p>
-              <p className="text-xs text-gray-600">
-                {document.status === "rejected" ? (
-                  <span className="font-semibold text-red-700">
-                    Round ended — revision required
-                  </span>
-                ) : currentStepIndex >= 0 ? (
-                  <>
-                    Step {currentStepIndex + 1} of {workflowSteps.length}:{" "}
-                    <span className="font-semibold text-gray-900">
-                      {workflowSteps[currentStepIndex].label}
-                    </span>
-                  </>
-                ) : (
-                  <span className="font-semibold text-green-700">
-                    All steps complete
-                  </span>
-                )}
-              </p>
-            </div>
-
-            <ol className="mt-2 flex flex-wrap items-center gap-1.5">
-              {workflowSteps.map((step, index) => (
-                <li
-                  key={step.label}
-                  title={`${index + 1}. ${step.label} — ${step.status}`}
-                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${workflowStepClass(step.status)}`}
-                >
-                  {step.status === "Completed" && (
-                    <span aria-hidden="true">✓ </span>
-                  )}
-                  {step.label}
-                  <span className="sr-only"> — {step.status}</span>
-                </li>
-              ))}
-            </ol>
-
-            {document.status === "approved" && hasSignatureEvidence && (
-              <p className="mt-3 text-sm font-medium text-gray-700">
-                Verification status:{" "}
-                <span className="text-teal-700">{verificationStatus}</span>
-              </p>
-            )}
-          </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-3">
             <div className="rounded-2xl border border-gray-200 p-5">

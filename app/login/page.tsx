@@ -81,11 +81,6 @@ export default function LoginPage() {
           <h1 className="mt-4 text-4xl font-semibold tracking-tight text-gray-900 md:whitespace-nowrap md:text-5xl">
             Submit, review, and verify research documents.
           </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-gray-600 md:text-base">
-            Designed for students, researchers, supervisors, and department
-            reviewers who need a clear record of comments, decisions,
-            signatures, and document integrity.
-          </p>
         </div>
 
         <section className="glass-panel w-full max-w-md rounded-[2rem] p-8 md:p-10">

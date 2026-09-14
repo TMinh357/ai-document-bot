@@ -330,10 +330,6 @@ export default async function DashboardPage() {
             <p className="mt-3 text-4xl font-semibold text-gray-900">
               {unreadCount}
             </p>
-
-            <p className="muted-copy mt-2 text-sm">
-              Same unread source as the header badge
-            </p>
           </div>
         </div>
 
