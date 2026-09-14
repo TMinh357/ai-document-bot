@@ -7,6 +7,7 @@ import { formatRoleLabel } from "@/lib/role-labels";
 import {
   describeSigningError,
   getClientRpId,
+  isMissingCredentialError,
   signFileHashWithWebAuthn,
 } from "@/lib/webauthn/client";
 
@@ -46,6 +47,7 @@ export default function SubmitForReviewForm({
   const [filterText, setFilterText] = useState("");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"error" | "success">("error");
+  const [canReRegister, setCanReRegister] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [showKeySetup, setShowKeySetup] = useState(false);
   const [credentialId, setCredentialId] = useState<string | null>(
@@ -129,9 +131,13 @@ export default function SubmitForReviewForm({
       router.refresh();
     } catch (err) {
       setMessageTone("error");
-      setMessage(
-        err instanceof Error ? describeSigningError(err) : "Submission failed."
-      );
+      setMessage(describeSigningError(err));
+      // A key registered on another origin (or since removed from this device)
+      // cannot be used here, and the user has no way out of that on their own.
+      // Offer re-registration instead of leaving them stuck.
+      if (isMissingCredentialError(err)) {
+        setCanReRegister(true);
+      }
     } finally {
       setPhase("idle");
     }
@@ -299,6 +305,20 @@ export default function SubmitForReviewForm({
             >
               {message}
             </p>
+          )}
+
+          {canReRegister && (
+            <button
+              type="button"
+              onClick={() => {
+                setCanReRegister(false);
+                setMessage("");
+                setShowKeySetup(true);
+              }}
+              className="button-secondary self-start"
+            >
+              Register a signing key for this device
+            </button>
           )}
 
           <button

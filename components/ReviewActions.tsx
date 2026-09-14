@@ -6,6 +6,7 @@ import SigningKeySetup from "./SigningKeySetup";
 import {
   describeSigningError,
   getClientRpId,
+  isMissingCredentialError,
   signFileHashWithWebAuthn,
 } from "@/lib/webauthn/client";
 
@@ -38,6 +39,7 @@ export default function ReviewActions({
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"error" | "success">("error");
   const [confirmingReject, setConfirmingReject] = useState(false);
+  const [canReRegister, setCanReRegister] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [showKeySetup, setShowKeySetup] = useState(false);
   const [credentialId, setCredentialId] = useState<string | null>(
@@ -102,6 +104,9 @@ export default function ReviewActions({
     } catch (err) {
       setMessageTone("error");
       setMessage(describeSigningError(err));
+      if (isMissingCredentialError(err)) {
+        setCanReRegister(true);
+      }
     } finally {
       setPhase("idle");
     }
@@ -225,6 +230,20 @@ export default function ReviewActions({
         >
           {message}
         </p>
+      )}
+
+      {canReRegister && (
+        <button
+          type="button"
+          onClick={() => {
+            setCanReRegister(false);
+            setMessage("");
+            setShowKeySetup(true);
+          }}
+          className="button-secondary mt-3"
+        >
+          Register a signing key for this device
+        </button>
       )}
 
       {confirmingReject && (
