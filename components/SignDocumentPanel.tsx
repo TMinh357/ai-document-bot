@@ -87,8 +87,20 @@ export default function SignDocumentPanel({
     verifyResult?.signatures
       .filter((s) => s.cryptoSignaturePresent)
       .every((s) => s.cryptoSignatureValid === true) ?? false;
+  // Three distinct outcomes, because "the bytes are intact" and "the signature
+  // verifies" are separate judgements. A signature can fail to verify with the
+  // file untouched — re-registering a signing key overwrites the stored public
+  // key, so signatures made with the previous key no longer verify.
   const overallValid =
-    !!verifyResult && !verifyResult.fileMissing && allHashesMatch;
+    !!verifyResult &&
+    !verifyResult.fileMissing &&
+    allHashesMatch &&
+    allCryptoValid;
+  const hashesMatchButSignatureUnverified =
+    !!verifyResult &&
+    !verifyResult.fileMissing &&
+    allHashesMatch &&
+    !allCryptoValid;
 
   return (
     <section className="mt-8 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
@@ -149,41 +161,63 @@ export default function SignDocumentPanel({
           className={`mt-5 rounded-2xl border p-5 ${
             overallValid
               ? "border-green-200 bg-green-50"
-              : "border-red-200 bg-red-50"
+              : hashesMatchButSignatureUnverified
+                ? "border-amber-200 bg-amber-50"
+                : "border-red-200 bg-red-50"
           }`}
         >
           <div className="flex items-center gap-3">
             <span
               className={`inline-flex h-9 w-9 items-center justify-center rounded-full text-lg font-bold text-white ${
-                overallValid ? "bg-green-600" : "bg-red-600"
+                overallValid
+                  ? "bg-green-600"
+                  : hashesMatchButSignatureUnverified
+                    ? "bg-amber-500"
+                    : "bg-red-600"
               }`}
               aria-hidden
             >
-              {overallValid ? "✓" : "✕"}
+              {overallValid
+                ? "✓"
+                : hashesMatchButSignatureUnverified
+                  ? "!"
+                  : "✕"}
             </span>
 
             <div>
               <p
                 className={`text-base font-bold ${
-                  overallValid ? "text-green-900" : "text-red-900"
+                  overallValid
+                    ? "text-green-900"
+                    : hashesMatchButSignatureUnverified
+                      ? "text-amber-900"
+                      : "text-red-900"
                 }`}
               >
                 {verifyResult.fileMissing
                   ? "File has been deleted or moved"
                   : overallValid
                     ? "File is valid"
-                    : "File has been modified"}
+                    : hashesMatchButSignatureUnverified
+                      ? "File unchanged, but a signature could not be verified"
+                      : "File has been modified"}
               </p>
               <p
                 className={`text-sm ${
-                  overallValid ? "text-green-800" : "text-red-800"
+                  overallValid
+                    ? "text-green-800"
+                    : hashesMatchButSignatureUnverified
+                      ? "text-amber-800"
+                      : "text-red-800"
                 }`}
               >
                 {verifyResult.fileMissing
                   ? "The signed file no longer exists at its original storage path."
                   : overallValid
                     ? "The current file matches every recorded signature hash."
-                    : "At least one signature hash does not match the current file."}
+                    : hashesMatchButSignatureUnverified
+                      ? "The file matches every recorded hash, but at least one signature could not be verified against the signer's currently registered key."
+                      : "At least one signature hash does not match the current file."}
               </p>
             </div>
           </div>
