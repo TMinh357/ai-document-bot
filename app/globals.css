@@ -131,11 +131,22 @@ button {
   gap: 1rem;
 }
 
+/* The heading column takes the leftover width instead of being sized by its
+   own text. Without this, a long caption or a long email in the user badge
+   pushes the whole nav onto a second row, so the header height changes
+   between pages and between accounts. */
+.topbar > :first-child {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .topbar-nav {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
+  /* Never squash the buttons or the badge — the heading column gives way. */
+  flex-shrink: 0;
 }
 
 .button-primary,
