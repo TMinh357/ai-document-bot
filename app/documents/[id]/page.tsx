@@ -14,7 +14,6 @@ import DocumentTimeline, {
 } from "@/components/DocumentTimeline";
 import FormattedDate from "@/components/FormattedDate";
 import { requireUser } from "@/lib/supabase/auth";
-import { REVIEW_CONTEXT_FALLBACK } from "@/lib/document-copy";
 import { displayFileName } from "@/lib/file-names";
 
 type PageProps = {
@@ -353,9 +352,11 @@ export default async function DocumentDetailPage({ params }: PageProps) {
                 {document.title}
               </h1>
 
-              <p className="mt-3 max-w-3xl text-gray-600">
-                {document.description || REVIEW_CONTEXT_FALLBACK}
-              </p>
+              {document.description?.trim() && (
+                <p className="mt-3 max-w-3xl text-gray-600">
+                  {document.description}
+                </p>
+              )}
             </div>
 
             <StatusBadge status={document.status} />
