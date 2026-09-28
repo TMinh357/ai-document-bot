@@ -5,6 +5,7 @@ import UserBadge from "@/components/UserBadge";
 import ActiveLink from "@/components/ActiveLink";
 import RoleSelector from "@/components/admin/RoleSelector";
 import StatusSelector from "@/components/admin/StatusSelector";
+import RevokeUserKeys from "@/components/admin/RevokeUserKeys";
 import FormattedDate from "@/components/FormattedDate";
 import { requireRole } from "@/lib/supabase/auth";
 import { formatRoleDescription, formatRoleLabel } from "@/lib/role-labels";
@@ -16,18 +17,31 @@ export default async function AdminUsersPage() {
 
   const adminClient = createAdminClient();
 
-  const [authResult, { data: profiles }] = await Promise.all([
-    adminClient.auth.admin.listUsers({ perPage: 200 }),
-    supabase
-      .from("profiles")
-      .select("id, full_name, role, status, created_at"),
-  ]);
+  const [authResult, { data: profiles }, { data: credentials }] =
+    await Promise.all([
+      adminClient.auth.admin.listUsers({ perPage: 200 }),
+      supabase
+        .from("profiles")
+        .select("id, full_name, role, status, created_at"),
+      adminClient
+        .from("webauthn_credentials")
+        .select("user_id")
+        .is("revoked_at", null),
+    ]);
 
   const authUsers = authResult.data?.users ?? [];
 
   const profileMap = new Map(
     (profiles ?? []).map((p) => [p.id, p])
   );
+
+  // How many keys each account can currently sign with, so an administrator
+  // containing a compromised account can see there is something to revoke.
+  const activeKeyCounts = new Map<string, number>();
+  for (const c of credentials ?? []) {
+    const userId = c.user_id as string;
+    activeKeyCounts.set(userId, (activeKeyCounts.get(userId) ?? 0) + 1);
+  }
 
   const rows = authUsers.map((u) => ({
     id: u.id,
@@ -36,6 +50,7 @@ export default async function AdminUsersPage() {
     role: profileMap.get(u.id)?.role ?? "employee",
     status: (profileMap.get(u.id)?.status ?? "pending") as AccountStatus,
     created_at: profileMap.get(u.id)?.created_at ?? u.created_at,
+    activeKeyCount: activeKeyCounts.get(u.id) ?? 0,
   }));
 
   rows.sort((a, b) => {
@@ -137,6 +152,11 @@ export default async function AdminUsersPage() {
                         isSelf={row.id === user.id}
                       />
                     </div>
+                    <RevokeUserKeys
+                      userId={row.id}
+                      activeKeyCount={row.activeKeyCount}
+                      isSelf={row.id === user.id}
+                    />
                   </div>
                 </div>
               ))

@@ -77,21 +77,6 @@ export default async function AdminDeviceRequestsPage() {
           </div>
         </div>
 
-        <div className="section-card mb-6 rounded-[2rem] border-l-4 border-l-amber-400 p-6">
-          <h2 className="text-base font-semibold text-gray-900">
-            Why this needs a human
-          </h2>
-          <p className="muted-copy mt-2 text-sm leading-6">
-            A signing key proves who approved a document. If a password alone
-            could replace one, then anyone who learned a password could sign in
-            someone else&apos;s name. Normally a user approves a new device by
-            signing with a device they already hold. This page exists for the
-            case where every previous device is gone — so approving here means
-            vouching that you have confirmed, by some means outside this system,
-            that the person asking really is who they claim to be.
-          </p>
-        </div>
-
         <section className="section-card overflow-hidden rounded-[2rem]">
           <div className="border-b border-gray-200/70 px-6 py-5">
             <h2 className="text-lg font-semibold text-gray-900">

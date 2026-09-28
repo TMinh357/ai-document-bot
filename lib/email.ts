@@ -374,6 +374,45 @@ export async function sendSigningKeyRegisteredEmail(args: {
   });
 }
 
+export async function sendSigningKeyRevokedEmail(args: {
+  userId: string;
+  deviceLabel: string | null;
+  wasLastActive: boolean;
+}): Promise<void> {
+  const to = await getUserEmail(args.userId);
+  if (!to) return;
+
+  const which = args.deviceLabel ? `"${args.deviceLabel}"` : "A signing key";
+
+  const aftermath = args.wasLastActive
+    ? `<p>That was the only signing key on your account. You cannot sign documents
+       until a new one is registered, and registering it needs an administrator
+       to approve the request.</p>`
+    : `<p>Your other signing keys are unaffected and can still be used.</p>`;
+
+  await sendEmail({
+    to,
+    subject: "A signing key was revoked on your account",
+    html: renderEmail({
+      heading: "Signing key revoked",
+      body: `
+        <p>${escapeHtml(which)} was just revoked on your account. It can no longer
+        sign documents or approve a new device.</p>
+        ${aftermath}
+        <p style="margin-top:16px;">Documents already signed with that key stay
+        valid and can still be verified.</p>
+        <p>If you did not do this, someone may know your password. Change it
+        immediately and contact an administrator.</p>
+      `,
+      cta: {
+        label: "Review your signing keys",
+        url: buildAppUrl("/profile/signing-keys"),
+      },
+    }),
+    text: `${which} was revoked on your account. If this was not you, change your password and contact an administrator.`,
+  });
+}
+
 export async function sendDeviceApprovalRequestedEmail(args: {
   userId: string;
   pairingCode: string;
