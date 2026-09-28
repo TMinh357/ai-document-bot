@@ -322,3 +322,120 @@ export async function sendAdminNewUserEmail(args: {
     text: `A new user (${args.newUserName || args.newUserEmail}) is awaiting approval. Open: ${url}`,
   });
 }
+
+// ─── Signing-key lifecycle ─────────────────────────────────────────────────
+//
+// These three are security notices rather than workflow updates. Someone who
+// steals a password usually does not also control the mailbox, so mail is the
+// channel most likely to reach the real account holder when an attacker is
+// enrolling a signing key.
+
+function deviceContext(ip: string | null, userAgent: string | null): string {
+  const rows: string[] = [];
+  if (ip) rows.push(`<li><strong>IP address:</strong> ${escapeHtml(ip)}</li>`);
+  if (userAgent)
+    rows.push(`<li><strong>Browser:</strong> ${escapeHtml(userAgent.slice(0, 160))}</li>`);
+  if (rows.length === 0) return "";
+  return `<ul style="padding-left: 20px;">${rows.join("")}</ul>`;
+}
+
+export async function sendSigningKeyRegisteredEmail(args: {
+  userId: string;
+  isAdditionalDevice: boolean;
+  approvalMethod: string | null;
+  ip: string | null;
+  userAgent: string | null;
+}): Promise<void> {
+  const to = await getUserEmail(args.userId);
+  if (!to) return;
+
+  const how =
+    args.approvalMethod === "admin"
+      ? "after an administrator approved a recovery request"
+      : args.approvalMethod === "existing_key"
+        ? "after it was approved from a device you already had"
+        : "as the first signing key on your account";
+
+  await sendEmail({
+    to,
+    subject: "A signing key was registered on your account",
+    html: renderEmail({
+      heading: "New signing key registered",
+      body: `
+        <p>A digital signing key was just registered on your account ${escapeHtml(how)}.</p>
+        ${deviceContext(args.ip, args.userAgent)}
+        <p style="margin-top:16px;"><strong>If this was you, no action is needed.</strong></p>
+        <p>If it was not you, someone may know your password. Change it immediately
+        and contact an administrator so the key can be revoked.</p>
+      `,
+      cta: { label: "Open the application", url: buildAppUrl("/dashboard") },
+    }),
+    text: `A signing key was registered on your account ${how}. If this was not you, change your password and contact an administrator.`,
+  });
+}
+
+export async function sendDeviceApprovalRequestedEmail(args: {
+  userId: string;
+  pairingCode: string;
+  ip: string | null;
+  userAgent: string | null;
+}): Promise<void> {
+  const to = await getUserEmail(args.userId);
+  if (!to) return;
+
+  await sendEmail({
+    to,
+    subject: `Approve a new signing device? Code ${args.pairingCode}`,
+    html: renderEmail({
+      heading: "Someone is asking to add a signing device",
+      body: `
+        <p>A request was made to register a digital signing key on a new device
+        for your account. The pairing code is:</p>
+        <p style="font-size:28px; font-weight:700; letter-spacing:4px; margin:16px 0;">
+          ${escapeHtml(args.pairingCode)}
+        </p>
+        ${deviceContext(args.ip, args.userAgent)}
+        <p style="margin-top:16px;"><strong>If this was you</strong>, open the
+        application on a device that already has your signing key and approve the
+        request — check that the code above matches the one shown on the new device.</p>
+        <p><strong>If this was not you</strong>, do not approve it. Someone may know
+        your password: change it now and tell an administrator.</p>
+      `,
+      cta: { label: "Review the request", url: buildAppUrl("/dashboard") },
+    }),
+    text: `A request to add a signing device was made on your account. Pairing code: ${args.pairingCode}. If this was not you, change your password and contact an administrator.`,
+  });
+}
+
+export async function sendDeviceApprovalGrantedEmail(args: {
+  userId: string;
+  approvedByAdmin: boolean;
+  expiresAt: string;
+}): Promise<void> {
+  const to = await getUserEmail(args.userId);
+  if (!to) return;
+
+  const until = new Date(args.expiresAt).toLocaleString("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+  });
+
+  await sendEmail({
+    to,
+    subject: "You can now register a signing key on your new device",
+    html: renderEmail({
+      heading: "Device approval granted",
+      body: `
+        <p>${
+          args.approvedByAdmin
+            ? "An administrator approved your request to register a signing key on a new device."
+            : "Your request to register a signing key on a new device was approved."
+        }</p>
+        <p>Return to the new device and complete the setup before
+        <strong>${escapeHtml(until)}</strong>. After that the approval expires and
+        you will need to request it again.</p>
+      `,
+      cta: { label: "Finish setting up", url: buildAppUrl("/dashboard") },
+    }),
+    text: `Your device approval was granted. Finish registering the signing key before ${until}.`,
+  });
+}
