@@ -5,9 +5,11 @@ import UserBadge from "@/components/UserBadge";
 import ActiveLink from "@/components/ActiveLink";
 import DashboardCharts from "@/components/DashboardCharts";
 import DashboardRealtime from "@/components/DashboardRealtime";
+import DeviceApprovalPanel from "@/components/DeviceApprovalPanel";
 import FormattedDate from "@/components/FormattedDate";
 import { requireUser } from "@/lib/supabase/auth";
 import { fireOverdueReminders } from "@/lib/review-reminders";
+import { getRpId } from "@/lib/webauthn/config";
 
 const NEAR_DUE_HOURS = 24;
 
@@ -16,6 +18,18 @@ export default async function DashboardPage() {
 
   const isAdmin = role === "admin";
   const canReview = role === "reviewer" || role === "admin";
+
+  // Credentials this account can sign with. Approving another device requires
+  // signing with one of them, so the approval panel needs the list.
+  const { data: signingCredentials } = await supabase
+    .from("webauthn_credentials")
+    .select("credential_id")
+    .eq("user_id", user.id)
+    .is("revoked_at", null);
+
+  const signingCredentialIds = (signingCredentials ?? []).map(
+    (c) => c.credential_id as string
+  );
 
   type PendingReviewRow = {
     id: string;
@@ -217,6 +231,17 @@ export default async function DashboardPage() {
   return (
     <main className="page-shell text-gray-900">
       <DashboardRealtime userId={user.id} isAdmin={isAdmin} />
+
+      {/* Only a device that already holds a key can approve another one, so
+          this panel renders nothing unless this browser has one. */}
+      {signingCredentialIds.length > 0 && (
+        <div className="page-container">
+          <DeviceApprovalPanel
+            credentialIds={signingCredentialIds}
+            rpId={getRpId()}
+          />
+        </div>
+      )}
       <div className="page-container">
         <header className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
@@ -229,6 +254,13 @@ export default async function DashboardPage() {
             <nav className="mt-5 flex flex-wrap items-center gap-2">
               <ActiveLink href="/documents" className="button-secondary">
                 Documents
+              </ActiveLink>
+
+              <ActiveLink
+                href="/profile/signing-keys"
+                className="button-secondary"
+              >
+                Signing Keys
               </ActiveLink>
 
               {canReview && (

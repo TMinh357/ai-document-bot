@@ -149,6 +149,19 @@ export default async function AdminPage() {
                 Full activity history of every action taken in the system.
               </p>
             </Link>
+
+            <Link
+              href="/admin/device-requests"
+              className="metric-card rounded-[1.5rem] p-5 hover:-translate-y-0.5"
+            >
+              <h3 className="text-lg font-semibold text-gray-900">
+                Signing Device Requests
+              </h3>
+              <p className="muted-copy mt-2 text-sm leading-6">
+                Approve a replacement signing key for someone who lost the
+                device holding theirs.
+              </p>
+            </Link>
           </div>
         </div>
       </div>
