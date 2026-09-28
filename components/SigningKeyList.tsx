@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { startAuthentication } from "@simplewebauthn/browser";
+import SigningKeySetup from "./SigningKeySetup";
 
 // Lists the signing keys on the account and lets the holder revoke one. A key
 // that looks unfamiliar is the visible symptom of someone else having enrolled
@@ -37,6 +38,9 @@ export default function SigningKeyList({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  // Registering a key used to be reachable only by starting a signing action,
+  // which meant going to a document to fix something about your account.
+  const [setupOpen, setSetupOpen] = useState(false);
 
   const active = keys.filter((k) => !k.revoked_at);
   const revoked = keys.filter((k) => k.revoked_at);
@@ -104,21 +108,47 @@ export default function SigningKeyList({
 
   return (
     <div className="space-y-6">
+      {setupOpen && (
+        <SigningKeySetup
+          onReady={() => {
+            setSetupOpen(false);
+            router.refresh();
+          }}
+          onCancel={() => {
+            setSetupOpen(false);
+            // A request may have been opened even if registration did not
+            // finish, and the approving device needs to see it.
+            router.refresh();
+          }}
+        />
+      )}
+
       {error && (
         <p className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>
       )}
 
       <section className="section-card overflow-hidden rounded-[2rem]">
-        <div className="border-b border-gray-200/70 px-6 py-5">
-          <h2 className="text-lg font-semibold text-gray-900">
-            Active keys{" "}
-            <span className="muted-copy text-sm font-normal">
-              ({active.length})
-            </span>
-          </h2>
-          <p className="muted-copy mt-1 text-sm">
-            Each key lives in one device and cannot be copied off it.
-          </p>
+        <div className="flex flex-col gap-3 border-b border-gray-200/70 px-6 py-5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">
+              Active keys{" "}
+              <span className="muted-copy text-sm font-normal">
+                ({active.length})
+              </span>
+            </h2>
+            <p className="muted-copy mt-1 text-sm">
+              Each key lives in one device and cannot be copied off it.
+            </p>
+          </div>
+
+          <button
+            onClick={() => setSetupOpen(true)}
+            className="w-fit shrink-0 rounded-xl bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800"
+          >
+            {active.length === 0
+              ? "Set up a signing key"
+              : "Add this device"}
+          </button>
         </div>
 
         <div className="data-list">

@@ -8,7 +8,6 @@ import {
 } from "@simplewebauthn/browser";
 
 type Props = {
-  userId: string;
   onReady: (credentialId: string) => void;
   onCancel: () => void;
 };

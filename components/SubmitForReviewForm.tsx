@@ -178,7 +178,6 @@ export default function SubmitForReviewForm({
     <div className="section-card mt-6 rounded-[2rem] p-6 md:p-8">
       {showKeySetup && (
         <SigningKeySetup
-          userId={userId}
           onReady={handleKeyReady}
           onCancel={() => setShowKeySetup(false)}
         />
