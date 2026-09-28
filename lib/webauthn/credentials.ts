@@ -82,6 +82,25 @@ export async function hasActiveCredential(
   return (count ?? 0) > 0;
 }
 
+// Has this account EVER held a signing key, revoked ones included?
+//
+// This is what gates self-service registration, not hasActiveCredential().
+// Counting only active keys left a way around the approval requirement:
+// revoke every key, and the account looks new again, so a stolen password
+// could register a key with nobody approving it. Once an account has held a
+// key, registering another always needs approval — however many were revoked.
+export async function hasEverHeldCredential(
+  db: SupabaseClient,
+  userId: string
+): Promise<boolean> {
+  const { count } = await db
+    .from("webauthn_credentials")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId);
+
+  return (count ?? 0) > 0;
+}
+
 export async function updateCredentialCounter(
   db: SupabaseClient,
   credentialId: string,

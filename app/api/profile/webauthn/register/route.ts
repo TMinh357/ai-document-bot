@@ -5,7 +5,10 @@ import type { RegistrationResponseJSON } from "@simplewebauthn/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getExpectedOrigin, getRpId } from "@/lib/webauthn/config";
-import { getActiveCredentials } from "@/lib/webauthn/credentials";
+import {
+  getActiveCredentials,
+  hasEverHeldCredential,
+} from "@/lib/webauthn/credentials";
 import { sendSigningKeyRegisteredEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
@@ -39,6 +42,9 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
   const active = await getActiveCredentials(admin, user.id);
+  // Gate on whether the account ever held a key, not whether it holds one now,
+  // so revoking every key cannot reopen self-service registration.
+  const needsApproval = await hasEverHeldCredential(admin, user.id);
   const isAdditionalDevice = active.length > 0;
 
   // Re-check the approval here as well as in register-options. The options
@@ -46,12 +52,12 @@ export async function POST(request: Request) {
   // grants signing power, so it must not rely on the earlier check alone.
   let approval: { id: string; approval_method: string | null } | null = null;
 
-  if (isAdditionalDevice) {
+  if (needsApproval) {
     if (!approvalRequestId) {
       return NextResponse.json(
         {
           error:
-            "Adding a signing key to an account that already has one requires an approved request.",
+            "Registering a signing key on this account requires an approved request.",
           code: "APPROVAL_REQUIRED",
         },
         { status: 403 }

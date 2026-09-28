@@ -4,7 +4,10 @@ import { generateRegistrationOptions } from "@simplewebauthn/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getRpId, RP_NAME } from "@/lib/webauthn/config";
-import { getActiveCredentials } from "@/lib/webauthn/credentials";
+import {
+  getActiveCredentials,
+  hasEverHeldCredential,
+} from "@/lib/webauthn/credentials";
 
 export const runtime = "nodejs";
 
@@ -39,9 +42,15 @@ export async function POST() {
   // this user, and the signature proves no more than the password did. The
   // first key is self-service; every later one needs an approved request,
   // either countersigned by an existing key or granted by an administrator.
+  //
+  // The gate is "has this account ever held a key", not "does it hold one
+  // now". Revoking is self-service, so counting active keys alone would let
+  // someone revoke every key and register again unapproved.
+  const heldBefore = await hasEverHeldCredential(admin, user.id);
+
   let approvedRequestId: string | null = null;
 
-  if (active.length > 0) {
+  if (heldBefore) {
     const { data: approved } = await admin
       .from("device_approval_requests")
       .select("id, approved_expires_at")
@@ -56,7 +65,9 @@ export async function POST() {
       return NextResponse.json(
         {
           error:
-            "This account already has a signing key. To add another device, request approval first.",
+            active.length > 0
+              ? "This account already has a signing key. To add another device, request approval first."
+              : "This account has held a signing key before. Registering another one needs approval first.",
           code: "APPROVAL_REQUIRED",
         },
         { status: 403 }

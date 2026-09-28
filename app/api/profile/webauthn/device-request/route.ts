@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getActiveCredentials } from "@/lib/webauthn/credentials";
+import { hasEverHeldCredential } from "@/lib/webauthn/credentials";
 import { sendDeviceApprovalRequestedEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
@@ -40,9 +40,11 @@ export async function POST() {
   }
 
   const admin = createAdminClient();
-  const active = await getActiveCredentials(admin, user.id);
+  // Mirrors the registration gate: an account that revoked every key still
+  // needs approval to register again, so it must still be able to ask for it.
+  const heldBefore = await hasEverHeldCredential(admin, user.id);
 
-  if (active.length === 0) {
+  if (!heldBefore) {
     return NextResponse.json(
       {
         error:
