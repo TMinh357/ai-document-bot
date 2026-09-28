@@ -25,12 +25,26 @@ type Props = {
   rpId: string;
 };
 
+// The raw WebAuthn API takes credential ids as bytes, unlike the
+// @simplewebauthn wrapper which takes the base64url string.
+function base64UrlToBytes(value: string): Uint8Array {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(padded.padEnd(Math.ceil(padded.length / 4) * 4, "="));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 export default function DeviceApprovalPanel({ credentialIds, rpId }: Props) {
   const [requests, setRequests] = useState<DeviceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [tone, setTone] = useState<"error" | "success">("error");
+  // Whether THIS machine holds one of the account's keys. The server only
+  // knows the account has keys somewhere, so without this the panel appears on
+  // the very device asking to be approved, where approving cannot work.
+  const [canApproveHere, setCanApproveHere] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -52,6 +66,43 @@ export default function DeviceApprovalPanel({ credentialIds, rpId }: Props) {
 
     (async () => {
       try {
+        // Ask the browser, silently, whether this machine holds one of the
+        // account's keys. mediation: "silent" resolves without any Windows
+        // Hello prompt: a credential if one is present here, null if not.
+        // The account's keys live in other machines' TPMs, so the server
+        // cannot answer this — only the browser can.
+        let present = false;
+        try {
+          const found = await navigator.credentials.get({
+            publicKey: {
+              challenge: new Uint8Array(32),
+              rpId,
+              allowCredentials: credentialIds.map((id) => ({
+                id: base64UrlToBytes(id),
+                type: "public-key" as const,
+                transports: ["internal" as const],
+              })),
+              userVerification: "discouraged",
+            },
+            mediation: "silent",
+          } as CredentialRequestOptions);
+          present = found !== null;
+        } catch {
+          // Browsers that do not support silent mediation throw rather than
+          // resolving null. Fall back to showing the panel: a user who cannot
+          // approve here sees an explanation, which beats hiding a pending
+          // request from the one device that could approve it.
+          present = true;
+        }
+
+        if (cancelled) return;
+        setCanApproveHere(present);
+
+        if (!present) {
+          setLoading(false);
+          return;
+        }
+
         const res = await fetch("/api/profile/webauthn/device-request");
         if (!res.ok || cancelled) return;
         const data = await res.json();
@@ -71,7 +122,7 @@ export default function DeviceApprovalPanel({ credentialIds, rpId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [credentialIds, rpId]);
 
   async function approve(req: DeviceRequest) {
     setBusyId(req.id);
@@ -110,8 +161,15 @@ export default function DeviceApprovalPanel({ credentialIds, rpId }: Props) {
       await load();
     } catch (err) {
       setTone("error");
+      // The browser reports "not allowed" both for a cancelled prompt and for
+      // a device that holds no matching key. Its own wording reads like a
+      // crash, so say which of the two this is likely to be.
       setMessage(
-        err instanceof Error ? err.message : "Could not approve the request."
+        err instanceof Error && err.name === "NotAllowedError"
+          ? "This device could not approve the request. Either the prompt was cancelled, or this is not a device that already holds a signing key — approve from the device you registered first."
+          : err instanceof Error
+            ? err.message
+            : "Could not approve the request."
       );
     } finally {
       setBusyId(null);
@@ -142,7 +200,7 @@ export default function DeviceApprovalPanel({ credentialIds, rpId }: Props) {
     }
   }
 
-  if (loading || requests.length === 0) return null;
+  if (loading || !canApproveHere || requests.length === 0) return null;
 
   return (
     <section className="mt-6 rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
