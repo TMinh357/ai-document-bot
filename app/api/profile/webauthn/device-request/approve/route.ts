@@ -11,6 +11,11 @@ import {
 
 export const runtime = "nodejs";
 
+// Once approved, the new device has this long to finish registering. The
+// approver and the device needing the key are often in different places, so
+// this is a day rather than minutes.
+const REGISTRATION_WINDOW_HOURS = 24;
+
 // Approve a pending device request by proving possession of a signing key the
 // account already holds. This is the control that stops a stolen password from
 // being enough to mint a new signing key: the approval itself must be signed
@@ -130,6 +135,12 @@ export async function POST(request: Request) {
 
   await updateCredentialCounter(admin, match.credential_id, newCounter);
 
+  // Approving opens a separate, bounded window in which the new device may
+  // complete registration.
+  const approvedExpiresAt = new Date(
+    Date.now() + REGISTRATION_WINDOW_HOURS * 3_600_000
+  ).toISOString();
+
   const { error: updateError } = await admin
     .from("device_approval_requests")
     .update({
@@ -137,6 +148,7 @@ export async function POST(request: Request) {
       approval_method: "existing_key",
       approved_by: user.id,
       approved_at: new Date().toISOString(),
+      approved_expires_at: approvedExpiresAt,
     })
     .eq("id", req.id)
     .eq("status", "pending");

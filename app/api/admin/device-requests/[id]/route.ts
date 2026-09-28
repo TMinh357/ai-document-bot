@@ -5,6 +5,10 @@ import { sendDeviceApprovalGrantedEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
+// Matches the self-approval route: once granted, the user has a day to finish
+// registering on the device that needs the key.
+const REGISTRATION_WINDOW_HOURS = 24;
+
 type RouteContext = { params: Promise<{ id: string }> };
 
 // Administrator decision on a device-approval request.
@@ -76,12 +80,12 @@ export async function PATCH(request: Request, context: RouteContext) {
     );
   }
 
-  // An administrator approving a recovery gets a fresh window: the original
-  // request may have been sitting unattended while identity was confirmed.
-  const expiresAt =
+  // Approving opens the registration window; the pending deadline is left
+  // alone so the audit trail still shows when the request would have lapsed.
+  const approvedExpiresAt =
     decision === "approved"
-      ? new Date(Date.now() + 30 * 60_000).toISOString()
-      : req.expires_at;
+      ? new Date(Date.now() + REGISTRATION_WINDOW_HOURS * 3_600_000).toISOString()
+      : null;
 
   const { error: updateError } = await admin
     .from("device_approval_requests")
@@ -90,7 +94,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       approval_method: decision === "approved" ? "admin" : null,
       approved_by: user.id,
       approved_at: new Date().toISOString(),
-      expires_at: expiresAt,
+      approved_expires_at: approvedExpiresAt,
     })
     .eq("id", req.id)
     .eq("status", "pending");
@@ -119,7 +123,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       await sendDeviceApprovalGrantedEmail({
         userId: req.user_id,
         approvedByAdmin: true,
-        expiresAt,
+        expiresAt: approvedExpiresAt!,
       });
     } catch {
       // Best-effort.

@@ -64,7 +64,7 @@ export async function POST(request: Request) {
       .eq("id", approvalRequestId)
       .eq("user_id", user.id)
       .eq("status", "approved")
-      .gt("expires_at", new Date().toISOString())
+      .gt("approved_expires_at", new Date().toISOString())
       .maybeSingle();
 
     if (!data) {

@@ -44,10 +44,10 @@ export async function POST() {
   if (active.length > 0) {
     const { data: approved } = await admin
       .from("device_approval_requests")
-      .select("id, expires_at")
+      .select("id, approved_expires_at")
       .eq("user_id", user.id)
       .eq("status", "approved")
-      .gt("expires_at", new Date().toISOString())
+      .gt("approved_expires_at", new Date().toISOString())
       .order("approved_at", { ascending: false })
       .limit(1)
       .maybeSingle();
