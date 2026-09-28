@@ -94,13 +94,30 @@ export async function GET(_request: Request, context: RouteContext) {
   const signerIds = Array.from(new Set(signatures.map((s) => s.signer_id)));
   const { data: signerProfiles } = await supabase
     .from("profiles")
-    .select(
-      "id, full_name, webauthn_credential_id, webauthn_public_key, webauthn_transports"
-    )
+    .select("id, full_name")
     .in("id", signerIds);
 
   const profileMap = new Map(
     (signerProfiles ?? []).map((p) => [p.id, p])
+  );
+
+  // Verify each signature against the key that actually produced it, looked up
+  // by the signature's own credential_id — revoked keys included. A signature
+  // made with a key that was later replaced is still a genuine signature, and
+  // reporting it as invalid would be wrong.
+  const credentialIds = Array.from(
+    new Set(signatures.map((s) => s.credential_id).filter(Boolean))
+  ) as string[];
+
+  const { data: credentialRows } = credentialIds.length
+    ? await supabase
+        .from("webauthn_credentials")
+        .select("credential_id, public_key, transports, revoked_at")
+        .in("credential_id", credentialIds)
+    : { data: [] as null | [] };
+
+  const credentialMap = new Map(
+    (credentialRows ?? []).map((c) => [c.credential_id, c])
   );
 
   // Verify every signature in parallel — each WebAuthn verification involves
@@ -116,11 +133,15 @@ export async function GET(_request: Request, context: RouteContext) {
 
       let cryptoSignatureValid: boolean | null = null;
 
+      const credential = sig.credential_id
+        ? credentialMap.get(sig.credential_id)
+        : undefined;
+
       if (isWebAuthn && sig.signature_bytes) {
-        if (profile?.webauthn_credential_id && profile?.webauthn_public_key) {
+        if (credential) {
           const reconstructed: AuthenticationResponseJSON = {
-            id: sig.credential_id ?? profile.webauthn_credential_id,
-            rawId: sig.credential_id ?? profile.webauthn_credential_id,
+            id: credential.credential_id,
+            rawId: credential.credential_id,
             type: "public-key",
             response: {
               clientDataJSON: sig.client_data_json!,
@@ -138,13 +159,13 @@ export async function GET(_request: Request, context: RouteContext) {
               expectedRPID: getRpId(),
               requireUserVerification: true,
               credential: {
-                id: profile.webauthn_credential_id,
+                id: credential.credential_id,
                 publicKey: new Uint8Array(
-                  Buffer.from(profile.webauthn_public_key, "base64")
+                  Buffer.from(credential.public_key, "base64")
                 ),
                 counter: 0, // bypass replay-counter check for stored signatures
                 transports:
-                  (profile.webauthn_transports as
+                  (credential.transports as
                     | AuthenticatorTransport[]
                     | null) ?? undefined,
               },

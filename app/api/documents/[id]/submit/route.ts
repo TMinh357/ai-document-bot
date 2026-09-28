@@ -4,6 +4,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendReviewAssignedEmail } from "@/lib/email";
 import { verifyWebAuthnSignature } from "@/lib/webauthn/verify";
 import { getOrComputeLatestVersionHash } from "@/lib/document-hash";
+import {
+  getActiveCredentials,
+  updateCredentialCounter,
+} from "@/lib/webauthn/credentials";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 
 export const runtime = "nodejs";
@@ -139,23 +143,29 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    // Look up the owner's registered WebAuthn credential.
-    const { data: ownerProfile } = await admin
-      .from("profiles")
-      .select(
-        "webauthn_credential_id, webauthn_public_key, webauthn_counter, webauthn_transports"
-      )
-      .eq("id", user.id)
-      .single();
+    // A user may hold several active credentials (one per device), so match
+    // the assertion to the credential that actually produced it.
+    const ownerCredentials = await getActiveCredentials(admin, user.id);
 
-    if (
-      !ownerProfile?.webauthn_credential_id ||
-      !ownerProfile?.webauthn_public_key
-    ) {
+    if (ownerCredentials.length === 0) {
       return NextResponse.json(
         {
           error:
             "No WebAuthn credential is registered for your account. Set up Windows Hello signing and try again.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const ownerCredential = ownerCredentials.find(
+      (c) => c.credential_id === assertion.id
+    );
+
+    if (!ownerCredential) {
+      return NextResponse.json(
+        {
+          error:
+            "That signing key is not registered to your account, or it has been revoked.",
         },
         { status: 400 }
       );
@@ -174,10 +184,10 @@ export async function POST(request: Request, context: RouteContext) {
       assertion,
       expectedFileHashHex: fileHash,
       storedCredential: {
-        credentialId: ownerProfile.webauthn_credential_id,
-        publicKeyB64: ownerProfile.webauthn_public_key,
-        counter: ownerProfile.webauthn_counter ?? 0,
-        transports: ownerProfile.webauthn_transports,
+        credentialId: ownerCredential.credential_id,
+        publicKeyB64: ownerCredential.public_key,
+        counter: ownerCredential.counter,
+        transports: ownerCredential.transports,
       },
     });
 
@@ -189,10 +199,11 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     // Update the sign counter so a cloned authenticator's replayed signature is rejected next time.
-    await admin
-      .from("profiles")
-      .update({ webauthn_counter: verifyResult.newCounter })
-      .eq("id", user.id);
+    await updateCredentialCounter(
+      admin,
+      ownerCredential.credential_id,
+      verifyResult.newCounter
+    );
 
     const { data: previousRound } = await admin
       .from("approvals")

@@ -8,6 +8,10 @@ import {
 } from "@/lib/email";
 import { verifyWebAuthnSignature } from "@/lib/webauthn/verify";
 import { getOrComputeLatestVersionHash } from "@/lib/document-hash";
+import {
+  getActiveCredentials,
+  updateCredentialCounter,
+} from "@/lib/webauthn/credentials";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 
 export const runtime = "nodejs";
@@ -142,22 +146,29 @@ export async function POST(request: Request, context: RouteContext) {
     // If approving, verify the reviewer's WebAuthn assertion against the current file hash.
     let reviewerFileHash: string | null = null;
     if (decision === "approved" && assertion) {
-      const { data: reviewerProfile } = await admin
-        .from("profiles")
-        .select(
-          "webauthn_credential_id, webauthn_public_key, webauthn_counter, webauthn_transports"
-        )
-        .eq("id", user.id)
-        .single();
+      // A reviewer may hold several active credentials (one per device), so
+      // match the assertion to the credential that actually produced it.
+      const reviewerCredentials = await getActiveCredentials(admin, user.id);
 
-      if (
-        !reviewerProfile?.webauthn_credential_id ||
-        !reviewerProfile?.webauthn_public_key
-      ) {
+      if (reviewerCredentials.length === 0) {
         return NextResponse.json(
           {
             error:
               "No WebAuthn credential is registered for your account. Set up Windows Hello signing and try again.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const reviewerCredential = reviewerCredentials.find(
+        (c) => c.credential_id === assertion.id
+      );
+
+      if (!reviewerCredential) {
+        return NextResponse.json(
+          {
+            error:
+              "That signing key is not registered to your account, or it has been revoked.",
           },
           { status: 400 }
         );
@@ -179,10 +190,10 @@ export async function POST(request: Request, context: RouteContext) {
         assertion,
         expectedFileHashHex: reviewerFileHash,
         storedCredential: {
-          credentialId: reviewerProfile.webauthn_credential_id,
-          publicKeyB64: reviewerProfile.webauthn_public_key,
-          counter: reviewerProfile.webauthn_counter ?? 0,
-          transports: reviewerProfile.webauthn_transports,
+          credentialId: reviewerCredential.credential_id,
+          publicKeyB64: reviewerCredential.public_key,
+          counter: reviewerCredential.counter,
+          transports: reviewerCredential.transports,
         },
       });
 
@@ -195,10 +206,11 @@ export async function POST(request: Request, context: RouteContext) {
         );
       }
 
-      await admin
-        .from("profiles")
-        .update({ webauthn_counter: verifyResult.newCounter })
-        .eq("id", user.id);
+      await updateCredentialCounter(
+        admin,
+        reviewerCredential.credential_id,
+        verifyResult.newCounter
+      );
     }
 
     const { error: updateError } = await admin

@@ -155,13 +155,30 @@ export default async function CertificatePage({ params }: PageProps) {
   const signerIds = Array.from(new Set(signatures.map((s) => s.signer_id)));
   const { data: signerProfiles } = await supabase
     .from("profiles")
-    .select(
-      "id, full_name, role, webauthn_credential_id, webauthn_public_key, webauthn_transports, webauthn_device_type, webauthn_aaguid, webauthn_registered_at"
-    )
+    .select("id, full_name, role")
     .in("id", signerIds);
 
   const profileMap = new Map(
     (signerProfiles ?? []).map((p) => [p.id, p])
+  );
+
+  // Look up the key that produced each signature, revoked keys included: a
+  // signature made with a key that was later replaced is still genuine.
+  const credentialIds = Array.from(
+    new Set(signatures.map((s) => s.credential_id).filter(Boolean))
+  ) as string[];
+
+  const { data: credentialRows } = credentialIds.length
+    ? await supabase
+        .from("webauthn_credentials")
+        .select(
+          "credential_id, public_key, transports, device_type, aaguid, created_at, revoked_at"
+        )
+        .in("credential_id", credentialIds)
+    : { data: [] as null | [] };
+
+  const credentialMap = new Map(
+    (credentialRows ?? []).map((c) => [c.credential_id, c])
   );
 
   const { data: version } = await supabase
@@ -202,16 +219,22 @@ export default async function CertificatePage({ params }: PageProps) {
   const verified: VerifiedSignature[] = await Promise.all(
     (signatures as SignatureRow[]).map(async (sig) => {
       const profile = profileMap.get(sig.signer_id);
+
+      // Attestation details describe the key that produced this signature, so
+      // they come from that credential rather than from whatever key the
+      // signer happens to hold now.
+      const credential = sig.credential_id
+        ? credentialMap.get(sig.credential_id)
+        : undefined;
+
       const signer: SignerInfo = {
         name: (profile?.full_name as string | null) ?? sig.signer_id,
         email: sig.signer_id === user.id ? (user.email ?? null) : null,
         role: (profile?.role as string | null) ?? null,
-        aaguid: (profile?.webauthn_aaguid as string | null) ?? null,
-        deviceType: (profile?.webauthn_device_type as string | null) ?? null,
-        transports:
-          (profile?.webauthn_transports as string[] | null) ?? null,
-        registeredAt:
-          (profile?.webauthn_registered_at as string | null) ?? null,
+        aaguid: (credential?.aaguid as string | null) ?? null,
+        deviceType: (credential?.device_type as string | null) ?? null,
+        transports: (credential?.transports as string[] | null) ?? null,
+        registeredAt: (credential?.created_at as string | null) ?? null,
       };
       const hashMatch =
         currentHash !== null && sig.signature_hash === currentHash;
@@ -222,16 +245,10 @@ export default async function CertificatePage({ params }: PageProps) {
 
       let cryptoSignatureValid: boolean | null = null;
 
-      if (
-        isWebAuthn &&
-        sig.signature_bytes &&
-        profile?.webauthn_credential_id &&
-        profile?.webauthn_public_key
-      ) {
+      if (isWebAuthn && sig.signature_bytes && credential) {
         const reconstructed: AuthenticationResponseJSON = {
-          id: sig.credential_id ?? (profile.webauthn_credential_id as string),
-          rawId:
-            sig.credential_id ?? (profile.webauthn_credential_id as string),
+          id: credential.credential_id,
+          rawId: credential.credential_id,
           type: "public-key",
           response: {
             clientDataJSON: sig.client_data_json!,
@@ -249,13 +266,13 @@ export default async function CertificatePage({ params }: PageProps) {
             expectedRPID: getRpId(),
             requireUserVerification: true,
             credential: {
-              id: profile.webauthn_credential_id as string,
+              id: credential.credential_id,
               publicKey: new Uint8Array(
-                Buffer.from(profile.webauthn_public_key as string, "base64")
+                Buffer.from(credential.public_key, "base64")
               ),
               counter: 0,
               transports:
-                (profile.webauthn_transports as
+                (credential.transports as
                   | AuthenticatorTransport[]
                   | null) ?? undefined,
             },

@@ -47,10 +47,13 @@ export default async function DocumentDetailPage({ params }: PageProps) {
     { data: signatures },
   ] = await Promise.all([
     supabase
-      .from("profiles")
-      .select("webauthn_credential_id")
-      .eq("id", user.id)
-      .single(),
+      .from("webauthn_credentials")
+      .select("credential_id")
+      .eq("user_id", user.id)
+      .is("revoked_at", null)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
     supabase
       .from("documents")
       .select(
@@ -106,7 +109,8 @@ export default async function DocumentDetailPage({ params }: PageProps) {
       .order("signed_at", { ascending: false }),
   ]);
 
-  const webAuthnCredentialId = currentProfile?.webauthn_credential_id ?? null;
+  // Presence of any active credential is what the signing UI needs to know.
+  const webAuthnCredentialId = currentProfile?.credential_id ?? null;
 
   if (!document) {
     redirect("/documents");
