@@ -58,21 +58,6 @@ export default async function SigningKeysPage() {
           </div>
         </div>
 
-        <div className="section-card mb-6 rounded-[2rem] border-l-4 border-l-slate-400 p-6">
-          <h2 className="text-base font-semibold text-gray-900">
-            Signing on a device that is not listed here
-          </h2>
-          <p className="muted-copy mt-2 text-sm leading-6">
-            A key cannot be copied between machines, so each device you sign
-            from needs its own. This list is the same on every device — it does
-            not tell you whether the one you are using now holds a key. If
-            signing asks you to set one up, use{" "}
-            <strong>Add this device</strong> below: with a key already on the
-            account, that opens a request you approve from the device that has
-            it, or an administrator approves if it is gone.
-          </p>
-        </div>
-
         <div className="section-card mb-6 rounded-[2rem] border-l-4 border-l-teal-500 p-6">
           <h2 className="text-base font-semibold text-gray-900">
             If you see a key you do not recognise
