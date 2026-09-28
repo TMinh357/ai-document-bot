@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireApiUser } from "@/lib/supabase/auth";
 import { sendReviewAssignedEmail } from "@/lib/email";
 import { verifyWebAuthnSignature } from "@/lib/webauthn/verify";
 import { getOrComputeLatestVersionHash } from "@/lib/document-hash";
@@ -21,19 +21,16 @@ type RouteContext = {
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { id: documentId } = await context.params;
-    const supabase = await createClient();
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    // Checks the account is still approved, not just that a session exists:
+    // a suspended account keeps a valid token until it expires.
+    const auth = await requireApiUser();
 
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: "You must be signed in." },
-        { status: 401 }
-      );
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
+
+    const { user } = auth;
 
     const body = await request.json();
     const reviewerIdsRaw = Array.isArray(body?.reviewerIds)
