@@ -5,6 +5,7 @@ import ActiveLink from "@/components/ActiveLink";
 import SigningKeyList, { type KeyRow } from "@/components/SigningKeyList";
 import { requireUser } from "@/lib/supabase/auth";
 import { aaguidToName } from "@/lib/webauthn/aaguid-registry";
+import { getRpId } from "@/lib/webauthn/config";
 
 export default async function SigningKeysPage() {
   const { supabase, user, profile, role } = await requireUser();
@@ -70,7 +71,7 @@ export default async function SigningKeysPage() {
           </p>
         </div>
 
-        <SigningKeyList keys={keys} />
+        <SigningKeyList keys={keys} rpId={getRpId()} />
       </div>
     </main>
   );

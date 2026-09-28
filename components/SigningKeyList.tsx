@@ -2,11 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { startAuthentication } from "@simplewebauthn/browser";
 
 // Lists the signing keys on the account and lets the holder revoke one. A key
 // that looks unfamiliar is the visible symptom of someone else having enrolled
 // on the account, so revoking has to be something the user can do themselves,
 // immediately.
+//
+// Revoking asks for Windows Hello, so that knowing the password is not enough
+// to strip an account of its keys. The last remaining key is the exception:
+// there is nothing left to sign with, and someone whose only device was stolen
+// needs to kill that key now rather than wait for an administrator.
 
 export type KeyRow = {
   id: string;
@@ -20,7 +26,13 @@ export type KeyRow = {
   authenticatorName: string;
 };
 
-export default function SigningKeyList({ keys }: { keys: KeyRow[] }) {
+export default function SigningKeyList({
+  keys,
+  rpId,
+}: {
+  keys: KeyRow[];
+  rpId: string;
+}) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -34,10 +46,43 @@ export default function SigningKeyList({ keys }: { keys: KeyRow[] }) {
     setError("");
 
     try {
+      const payload: {
+        reason: string;
+        assertion?: Awaited<ReturnType<typeof startAuthentication>>;
+      } = { reason: "Revoked from the signing keys page" };
+
+      // With another key available, confirm with it. The server issues a fresh
+      // challenge so an assertion from signing a document cannot be replayed.
+      if (active.length > 1) {
+        const res = await fetch("/api/profile/webauthn/revoke-challenge", {
+          method: "POST",
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || "Could not start the confirmation.");
+        }
+
+        payload.assertion = await startAuthentication({
+          optionsJSON: {
+            challenge: data.challenge,
+            rpId: rpId,
+            allowCredentials: (data.credentialIds as string[]).map(
+              (credentialId) => ({
+                id: credentialId,
+                type: "public-key" as const,
+                transports: ["internal" as const],
+              })
+            ),
+            userVerification: "required",
+            timeout: 60000,
+          },
+        });
+      }
+
       const res = await fetch(`/api/profile/webauthn/credentials/${id}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "Revoked from the signing keys page" }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not revoke the key.");
@@ -45,7 +90,13 @@ export default function SigningKeyList({ keys }: { keys: KeyRow[] }) {
       setConfirmId(null);
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not revoke.");
+      setError(
+        err instanceof Error && err.name === "NotAllowedError"
+          ? "Confirmation was cancelled, so nothing was revoked."
+          : err instanceof Error
+            ? err.message
+            : "Could not revoke."
+      );
     } finally {
       setBusyId(null);
     }
@@ -101,8 +152,9 @@ export default function SigningKeyList({ keys }: { keys: KeyRow[] }) {
                       <p className="text-xs text-red-900">
                         Revoking stops this key signing. Documents already signed
                         with it stay valid and verifiable.
-                        {active.length <= 1 &&
-                          " This is your only key — you will need an administrator to approve a replacement."}
+                        {active.length > 1
+                          ? " You will be asked to confirm with one of your other keys."
+                          : " This is your only key — registering a replacement will need an administrator to approve it."}
                       </p>
                       <div className="mt-2 flex gap-2">
                         <button
@@ -110,7 +162,11 @@ export default function SigningKeyList({ keys }: { keys: KeyRow[] }) {
                           disabled={busyId === k.id}
                           className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
                         >
-                          {busyId === k.id ? "Revoking..." : "Revoke it"}
+                          {busyId === k.id
+                            ? active.length > 1
+                              ? "Waiting for Windows Hello..."
+                              : "Revoking..."
+                            : "Revoke it"}
                         </button>
                         <button
                           onClick={() => setConfirmId(null)}
