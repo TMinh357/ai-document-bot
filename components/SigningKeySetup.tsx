@@ -16,6 +16,29 @@ type Availability = "checking" | "available" | "no-webauthn" | "no-platform";
 
 type PendingRequest = { id: string; pairingCode: string; expiresAt: string };
 
+// Requests opened from this browser, so the approval panel can leave them out.
+// A request has to be approved from a device that already holds a key, which
+// is never the device that opened it — but the server cannot tell the two
+// apart, because a key leaves no trace outside the authenticator holding it.
+export const OWN_REQUESTS_KEY = "webauthn_own_device_requests";
+
+export function rememberOwnRequest(id: string): void {
+  try {
+    const raw = localStorage.getItem(OWN_REQUESTS_KEY);
+    const ids: string[] = raw ? JSON.parse(raw) : [];
+    if (!ids.includes(id)) {
+      // Keep this short; stale ids are harmless but pointless.
+      localStorage.setItem(
+        OWN_REQUESTS_KEY,
+        JSON.stringify([...ids, id].slice(-10))
+      );
+    }
+  } catch {
+    // Private mode or blocked storage: the panel falls back to showing the
+    // request, which is the safe direction to fail.
+  }
+}
+
 export default function SigningKeySetup({ onReady, onCancel }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -110,6 +133,8 @@ export default function SigningKeySetup({ onReady, onCancel }: Props) {
         }
         throw new Error(data.error || "Could not create the request.");
       }
+
+      rememberOwnRequest(data.id);
 
       setRequest({
         id: data.id,
